@@ -1,0 +1,78 @@
+{
+  "watch_dir": "data/incoming",
+  "output_dir": "data/output",
+  "done_dir": "data/done",
+  "failed_dir": "data/failed",
+  "database_path": "data/jobs.sqlite3",
+  "output_width": 1080,
+  "output_height": 1920,
+  "video_crf": 23,
+  "video_preset": "medium",
+  "audio_bitrate": "192k",
+  "stable_wait_seconds": 10,
+  "youtube_slots": [
+    {
+      "title": "YouTube 1",
+      "url": "https://www.youtube.com/watch?v=TCnaIE_SAtM",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 2",
+      "url": "https://www.youtube.com/watch?v=baDV1O5EBP0",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 3",
+      "url": "https://www.youtube.com/watch?v=9gx5EIyHmsw",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 4",
+      "url": "https://youtu.be/6TsaEYaKueE",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 5",
+      "url": "https://youtu.be/UJgN7q6jpns",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 6",
+      "url": "https://youtu.be/GYFywdYdPPk",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 7",
+      "url": "https://youtu.be/ADDSmXoPDY8",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 8",
+      "url": "https://youtu.be/0SkMLgihOVM",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 9",
+      "url": "https://youtu.be/LqXVZ_hK3Xs",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 10",
+      "url": "https://youtu.be/Zn_nwouK0pQ",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 11",
+      "url": "https://youtu.be/vr3XyVCR4T0",
+      "enabled": true
+    },
+    {
+      "title": "YouTube 12",
+      "url": "https://youtu.be/m_dhMSvUCIc",
+      "enabled": true
+    }
+  ],
+  "youtube_monitor_interval_seconds": 30,
+  "youtube_reload_after_bad_seconds": 90,
+  "telegram_alerts_enabled": false
+}
