@@ -12,62 +12,62 @@
   "stable_wait_seconds": 10,
   "youtube_slots": [
     {
-      "title": "YouTube 1",
+      "title": "中視主頻",
       "url": "https://www.youtube.com/watch?v=TCnaIE_SAtM",
       "enabled": true
     },
     {
-      "title": "YouTube 2",
+      "title": "中視副頻",
       "url": "https://www.youtube.com/watch?v=baDV1O5EBP0",
       "enabled": true
     },
     {
-      "title": "YouTube 3",
+      "title": "綜藝一級棒",
       "url": "https://www.youtube.com/watch?v=9gx5EIyHmsw",
       "enabled": true
     },
     {
-      "title": "YouTube 4",
+      "title": "飢餓遊戲1",
       "url": "https://youtu.be/6TsaEYaKueE",
       "enabled": true
     },
     {
-      "title": "YouTube 5",
+      "title": "飢餓遊戲2",
       "url": "https://youtu.be/UJgN7q6jpns",
       "enabled": true
     },
     {
-      "title": "YouTube 6",
+      "title": "三生三世",
       "url": "https://youtu.be/GYFywdYdPPk",
       "enabled": true
     },
     {
-      "title": "YouTube 7",
+      "title": "萬秀豬王",
       "url": "https://youtu.be/ADDSmXoPDY8",
       "enabled": true
     },
     {
-      "title": "YouTube 8",
+      "title": "鍾世經典戲劇1",
       "url": "https://youtu.be/0SkMLgihOVM",
       "enabled": true
     },
     {
-      "title": "YouTube 9",
+      "title": "大陸尋奇",
       "url": "https://youtu.be/LqXVZ_hK3Xs",
       "enabled": true
     },
     {
-      "title": "YouTube 10",
+      "title": "光陰的故事",
       "url": "https://youtu.be/Zn_nwouK0pQ",
       "enabled": true
     },
     {
-      "title": "YouTube 11",
+      "title": "中天電視",
       "url": "https://youtu.be/vr3XyVCR4T0",
       "enabled": true
     },
     {
-      "title": "YouTube 12",
+      "title": "TVBS",
       "url": "https://youtu.be/m_dhMSvUCIc",
       "enabled": true
     }
