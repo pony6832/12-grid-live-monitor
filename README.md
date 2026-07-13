@@ -1,9 +1,9 @@
 # 影音自動化操作軟體
 
-Windows 本地桌面工具，目前版本為「12宮格直播監控 V1.1」，包含兩個獨立入口：
+Windows 本地桌面工具，目前正式版本為「12宮格直播監控 V1.1」，包含兩個獨立入口：
 
 - 監控資料夾並自動把新影片轉成 9:16 短影音 MP4。
-- YouTube 12 宮格 Chrome 嵌入播放器，可讀取設定並把啟用的連結用真正 Chrome 嵌入單一 4x3 視窗。
+- YouTube 12 宮格 mpv 輕量播放器，不載入完整瀏覽器網頁並使用硬體解碼。
 
 ## 功能
 
@@ -30,11 +30,19 @@ Windows 本地桌面工具，目前版本為「12宮格直播監控 V1.1」，�
 .\run.ps1
 ```
 
-YouTube 12 宮格 Chrome 嵌入播放器：
+YouTube 12 宮格正式播放器：
 
 ```powershell
 .\run-youtube-player.ps1
 ```
+
+第一次啟動會透過 winget 安裝 mpv 與 yt-dlp。舊 Chrome 嵌入版保留為相容備援：
+
+```powershell
+.\run-chrome-player.ps1
+```
+
+正式版不載入 YouTube 網頁，預設靜音、720p、30fps 與硬體解碼，並在上方顯示 12 個 mpv 程序的 RAM 合計。每格可獨立開關聲音、調整 0-100 音量及重載；播放程序異常退出時會在 5 秒後自動重連。紀錄寫入 `data/light_player.log`。
 
 ## V1 打包與安裝
 
@@ -86,9 +94,9 @@ YouTube Chrome grid watchdog 啟動器，會啟動一次 Chrome 宮格並寫入 
 1. 執行 `.\run-youtube-player.ps1`。
 2. 播放器會預設全螢幕開啟；按「連結設定」展開隱藏側邊欄。
 3. 在 12 個欄位貼上 YouTube 連結、勾選「啟用」、按「保存並重載」。
-4. 程式會用真正的 Chrome app 視窗開啟啟用的格子，並嵌入單一 4x3 宮格主視窗。
-5. 每格使用真正 Chrome 載入一般 YouTube watch 頁面，避免 `/embed/` 造成錯誤 153。
-6. 預設靜音、自動播放，並在 URL 補上 1080HD 畫質偏好 `vq=hd1080`。
+4. 程式會以 mpv 原生播放器載入啟用的格子，並嵌入單一 4x3 宮格主視窗。
+5. 每格預設靜音，可使用喇叭按鈕開關聲音，使用滑桿調整音量。
+6. 上方畫質選單可切換 480p、720p、1080p，切換時會重新載入啟用格。
 
 這一版預設關閉 Telegram 警告，只保留本機 log。之後若要重新開啟，先把 `config.json` 的 `telegram_alerts_enabled` 改成 `true`，再設定環境變數：
 

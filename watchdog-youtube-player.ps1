@@ -15,10 +15,13 @@ function Write-WatchdogLog {
     Add-Content -Path $logPath -Value "[$stamp] $Message" -Encoding UTF8
 }
 
-Write-WatchdogLog "YouTube Chrome grid watchdog started."
+Write-WatchdogLog "YouTube mpv grid watchdog started."
 
 $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-$process = Start-Process -FilePath $python -ArgumentList "-m", "app.chrome_embed" -WorkingDirectory $PSScriptRoot -PassThru
-Write-WatchdogLog "Started YouTube Chrome grid launcher process id $($process.Id)."
-Wait-Process -Id $process.Id
-Write-WatchdogLog "Launcher exited with code $($process.ExitCode). Chrome windows are now managed by Chrome itself."
+while ($true) {
+    $process = Start-Process -FilePath $python -ArgumentList "-m", "app.light_player" -WorkingDirectory $PSScriptRoot -PassThru
+    Write-WatchdogLog "Started light player process id $($process.Id)."
+    Wait-Process -Id $process.Id
+    Write-WatchdogLog "Light player exited with code $($process.ExitCode). Restarting in 5 seconds."
+    Start-Sleep -Seconds 5
+}

@@ -10,6 +10,13 @@ if (-not (Test-Path $sourceDir)) {
     throw "找不到安裝來源資料夾：$sourceDir"
 }
 
+$packageRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+$mpvInstalled = (Get-Command mpv -ErrorAction SilentlyContinue) -or (Get-ChildItem $packageRoot -Filter mpv.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+$ytdlpInstalled = (Get-Command yt-dlp -ErrorAction SilentlyContinue) -or (Get-ChildItem $packageRoot -Filter yt-dlp.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+if (-not $mpvInstalled -or -not $ytdlpInstalled) {
+    & (Join-Path $PSScriptRoot "install-light-player.ps1")
+}
+
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 $configBackup = $null
 if (Test-Path $installDir) {
