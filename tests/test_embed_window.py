@@ -1,15 +1,80 @@
+from datetime import datetime
 import re
 import unittest
 
 from PySide6.QtWidgets import QApplication
 
-from app.ui.chrome_embed_window import RELAUNCH_DELAYS, ChromeEmbedSlot
+from app.core.config import AppConfig
+from app.ui.chrome_embed_window import RELAUNCH_DELAYS, ChromeEmbedSlot, ChromeEmbedWindow
 from app.ui.themes import THEMES, build_stylesheet, get_theme
 
 
 class FakeHost:
     def player_url(self, url):
         return 'http://127.0.0.1/player'
+
+
+class FakeReloadSlot:
+    def __init__(self):
+        self.stopped = False
+        self.disabled_status_refreshed = False
+
+    def stop_chrome(self):
+        self.stopped = True
+
+    def is_runnable(self):
+        return False
+
+    def start_if_enabled(self):
+        self.disabled_status_refreshed = True
+
+
+class DailyReloadWindowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def make_window(self):
+        window = ChromeEmbedWindow(AppConfig())
+        for slot in window.slots:
+            slot.resize_timer.stop()
+        return window
+
+    def dispose_window(self, window):
+        window.launch_timer.stop()
+        window.reveal_timer.stop()
+        if hasattr(window, 'daily_reload_timer'):
+            window.daily_reload_timer.stop()
+        window.player_host.close()
+
+    def test_due_schedule_uses_existing_reload_path_and_updates_status(self):
+        window = self.make_window()
+        fake_slot = FakeReloadSlot()
+        window.slots = [fake_slot]
+        try:
+            triggered = window._check_daily_reload(datetime(2026, 11, 12, 1, 0, 0))
+
+            self.assertTrue(triggered)
+            self.assertTrue(fake_slot.stopped)
+            self.assertTrue(fake_slot.disabled_status_refreshed)
+            self.assertEqual(window.status_label.text(), "每日 01:00 已自動全部重載")
+        finally:
+            self.dispose_window(window)
+
+    def test_not_due_does_not_reload_or_replace_status(self):
+        window = self.make_window()
+        fake_slot = FakeReloadSlot()
+        window.slots = [fake_slot]
+        window.status_label.setText("原有狀態")
+        try:
+            triggered = window._check_daily_reload(datetime(2026, 11, 12, 1, 1, 0))
+
+            self.assertFalse(triggered)
+            self.assertFalse(fake_slot.stopped)
+            self.assertFalse(fake_slot.disabled_status_refreshed)
+            self.assertEqual(window.status_label.text(), "原有狀態")
+        finally:
+            self.dispose_window(window)
 
 
 class SlotRelaunchTests(unittest.TestCase):

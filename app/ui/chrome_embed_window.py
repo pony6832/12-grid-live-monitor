@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import ctypes
 from ctypes import wintypes
 import subprocess
 import time
 import uuid
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QDateTime, QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from app.chrome_grid import find_chrome
 from app.core.chrome_session import PlayerConnection, browser_args
+from app.core.daily_reload import DailyReloadSchedule
 from app.core.player_host import PlayerHost
 from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, normalize_youtube_slots
 from app.ui.themes import DEFAULT_THEME, THEMES, build_stylesheet, get_theme
@@ -94,11 +96,16 @@ class ChromeEmbedWindow(QMainWindow):
         self.launch_timer.timeout.connect(self._start_next_slot)
         self.reveal_timer = QTimer(self)
         self.reveal_timer.timeout.connect(self._check_reveal)
+        self.daily_reload_schedule = DailyReloadSchedule(hour=1, minute=0)
+        self.daily_reload_timer = QTimer(self)
+        self.daily_reload_timer.setInterval(1000)
+        self.daily_reload_timer.timeout.connect(self._check_daily_reload)
 
         self._build_layout()
         self._connect_events()
         self._install_shortcuts()
         self.apply_theme(self.theme_name, save=False)
+        self.daily_reload_timer.start()
         QTimer.singleShot(0, self.reload_enabled_slots)
 
     # ---------- layout ----------
@@ -344,6 +351,14 @@ class ChromeEmbedWindow(QMainWindow):
 
     # ---------- chrome lifecycle ----------
 
+    def _check_daily_reload(self, now: datetime | None = None) -> bool:
+        current = now if now is not None else QDateTime.currentDateTime().toPython()
+        if not self.daily_reload_schedule.should_trigger(current):
+            return False
+        self.reload_enabled_slots()
+        self.status_label.setText("每日 01:00 已自動全部重載")
+        return True
+
     def save_and_reload(self) -> None:
         self.config.youtube_slots = [row.to_config() for row in self.link_rows]
         self.config.save()
@@ -399,6 +414,7 @@ class ChromeEmbedWindow(QMainWindow):
         self.enabled_count_label.setText(f"{enabled_count}/{YOUTUBE_SLOT_COUNT}")
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        self.daily_reload_timer.stop()
         self.reveal_timer.stop()
         self.close_all_chrome()
         self.player_host.close()
