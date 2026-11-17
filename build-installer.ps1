@@ -1,9 +1,10 @@
 ﻿$ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 
-# Builds a single-file installer exe. Run .\build-v3.ps1 first so dist\ holds the current app.
+# Builds a single-file installer exe. Run .\build.ps1 first so dist\ holds the current app.
 $appName = "12宮格直播監控"
-$version = "V3"
+$version = (& .\.venv\Scripts\python.exe -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not $version) { throw "讀不到 app\version.py 的版本號" }
 $appDir = Join-Path $PSScriptRoot "dist\$appName"
 $payload = Join-Path $PSScriptRoot "build\installer\payload.zip"
 $iconPath = Join-Path $PSScriptRoot "assets\12grid-live-monitor-icon.ico"
@@ -11,7 +12,7 @@ $releaseRoot = Join-Path $PSScriptRoot "release"
 $setupName = "$appName-$version-安裝程式"
 
 if (-not (Test-Path (Join-Path $appDir "$appName.exe"))) {
-    throw "找不到 $appDir，請先執行 .\build-v3.ps1"
+    throw "找不到 $appDir，請先執行 .\build.ps1"
 }
 
 & .\.venv\Scripts\python.exe .\tools\make_payload.py $appDir (Join-Path $PSScriptRoot "config.json") $payload
@@ -24,6 +25,7 @@ if ($LASTEXITCODE -ne 0) { throw "payload 建立失敗" }
     --windowed `
     --name $setupName `
     --icon $iconPath `
+    --paths $PSScriptRoot `
     --add-data "$payload;." `
     --distpath $releaseRoot `
     --workpath (Join-Path $PSScriptRoot "build\installer-work") `

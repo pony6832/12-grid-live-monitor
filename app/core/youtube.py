@@ -8,6 +8,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 class YouTubeTarget:
     video_id: str | None = None
     playlist_id: str | None = None
+    # A channel's current live stream: survives the stream being restarted under a new video id.
+    channel_id: str | None = None
 
     @property
     def is_playlist(self) -> bool:
@@ -36,18 +38,26 @@ def parse_youtube_url(value: str) -> YouTubeTarget:
     playlist_id = _first_query_value(query, "list")
     video_id: str | None = None
 
+    channel_id: str | None = None
+
     if host == "youtu.be":
         if path_parts:
             video_id = path_parts[0]
     elif host in {"youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"}:
-        video_id = _parse_youtube_com_path(path_parts, query)
+        if len(path_parts) >= 2 and path_parts[0].lower() == "channel":
+            channel_id = path_parts[1]
+        elif path_parts and path_parts[0].startswith("@"):
+            raise YouTubeUrlError("不支援 @帳號 網址，請改用 youtube.com/channel/UC…/live 或影片網址")
+        else:
+            video_id = _parse_youtube_com_path(path_parts, query)
     else:
-        raise YouTubeUrlError(f"Unsupported YouTube host: {parsed.netloc}")
+        raise YouTubeUrlError(f"不是 YouTube 網址：{parsed.netloc}")
 
-    if not video_id and not playlist_id:
-        raise YouTubeUrlError("No YouTube video or playlist ID found.")
+    if not video_id and not playlist_id and not channel_id:
+        raise YouTubeUrlError("網址裡找不到影片、播放清單或頻道 ID")
 
-    return YouTubeTarget(video_id=_clean_id(video_id), playlist_id=_clean_id(playlist_id))
+    return YouTubeTarget(video_id=_clean_id(video_id), playlist_id=_clean_id(playlist_id),
+                         channel_id=_clean_id(channel_id))
 
 
 def _parse_youtube_com_path(path_parts: list[str], query: dict[str, list[str]]) -> str | None:

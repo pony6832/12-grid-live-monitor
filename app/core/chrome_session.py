@@ -2,7 +2,6 @@ from pathlib import Path
 import json
 import os
 import subprocess
-import sys
 import time
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
@@ -10,19 +9,27 @@ from PySide6.QtNetwork import QAbstractSocket, QNetworkAccessManager, QNetworkRe
 from PySide6.QtWebSockets import QWebSocket
 
 
-def app_root() -> Path:
-    # A PyInstaller build keeps its modules under _internal/, which the installer replaces on upgrade.
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
-
-
-PROFILE = app_root() / "data" / "chrome_monitor_profile"
+from app.core.paths import PROFILE, app_root  # noqa: F401  (app_root is re-exported)
 
 PERMANENT_ERRORS = {2, 100, 101, 150, 153}
+# 150/101: the owner blocks embedding, or YouTube wants a signed-in viewer ("confirm you're not a bot").
+LOGIN_ERRORS = {101, 150}
 FAST_RETRIES = 3
 SLOW_RETRY_SECONDS = 600
 HEALTHY_RESET_SECONDS = 120
+
+
+def find_chrome() -> str:
+    candidates = [
+        os.environ.get("CHROME_PATH", "").strip(),
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / r"Google\Chrome\Application\chrome.exe"),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    return "chrome.exe"
 
 
 class PlaybackHealth:
@@ -37,12 +44,23 @@ class PlaybackHealth:
         self.retries = 0
         self.next_retry = self.last_progress + 30
         self.playing_since = None
+        self.permanent_retry_at = None
+        self.error = None
 
     def observe(self, snapshot: dict, now: float) -> tuple[str, bool]:
         error, state, current = snapshot.get('error'), snapshot.get('state'), snapshot.get('time')
+        self.error = error
         if error in PERMANENT_ERRORS:
+            # "Permanent" for this video id right now, but a live stream can come back and a
+            # sign-in can be completed, so reload slowly instead of waiting for the daily reload.
             self.playing_since = None
+            if self.permanent_retry_at is None:
+                self.permanent_retry_at = now + SLOW_RETRY_SECONDS
+            elif now >= self.permanent_retry_at:
+                self.permanent_retry_at = now + SLOW_RETRY_SECONDS
+                return 'error', True
             return 'error', False
+        self.permanent_retry_at = None
         if state == 1 and current != self.last_time:
             self.last_time = current
             self.last_progress = now

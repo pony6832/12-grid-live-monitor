@@ -93,7 +93,7 @@ QScrollArea {{ background: transparent; border: 0; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
 QFrame#linkRow {{ background: {t['surface_alt']}; border: 1px solid {t['border']}; border-radius: 6px; }}
 QLabel#rowIndex {{ background: {t['button']}; color: {t['accent']}; border-radius: 4px; padding: 3px 6px; font-weight: 700; }}
-QLineEdit, QComboBox {{
+QLineEdit, QComboBox, QTimeEdit, QSpinBox {{
     background: {t['input']}; color: {t['text']};
     border: 1px solid {t['border_strong']}; border-radius: 4px; padding: 4px 6px;
     selection-background-color: {t['accent']}; selection-color: {t['accent_text']};

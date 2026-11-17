@@ -1,155 +1,86 @@
-# 影音自動化操作軟體
+# 12宮格直播監控
 
-Windows 本地桌面工具，目前版本為「12宮格直播監控 V3」，包含兩個獨立入口：
-
-- 監控資料夾並自動把新影片轉成 9:16 短影音 MP4。
-- YouTube 12 宮格 Chrome 嵌入播放器，可讀取設定並把啟用的連結用真正 Chrome 嵌入單一 4x3 視窗。
-
-## 功能
-
-- 監控指定資料夾的新影片。
-- 等待檔案大小穩定後自動加入任務。
-- 使用 ffprobe 讀取影片資訊，使用 ffmpeg 轉成 1080x1920 H.264/AAC MP4。
-- 以中心裁切方式輸出直式短影音。
-- 成功後原始檔移到 `done`，失敗後移到 `failed`。
-- SQLite 保留任務狀態，重啟後仍可看到歷史任務，且不會重複處理同一個未變動檔案。
+Windows 桌面工具，目前版本 V04。把最多 12 個 YouTube 直播用真正的 Chrome 嵌入單一 4x3 視窗，適合 24 小時監看。
 
 ## 安裝
 
-先確認 Windows PATH 內有 `ffmpeg` 和 `ffprobe`。
+雙擊 `12宮格直播監控-V04-安裝程式.exe`（不需系統管理員權限）。程式會裝到 `%LOCALAPPDATA%\Programs\12宮格直播監控`，建立桌面與開始功能表捷徑，並登錄到「設定 > 應用程式」，可從那裡解除安裝。
 
-```powershell
-.\install.ps1
-```
+升級時只替換程式檔，`config.json`（頻道連結）與 `data\`（Google 登入狀態、記錄檔）不會被移動或刪除。安裝前請先關閉正在執行的程式。
 
-## 啟動
-
-本地影片轉檔監控器：
-
-```powershell
-.\run.ps1
-```
-
-YouTube 12 宮格 Chrome 嵌入播放器：
-
-```powershell
-.\run-youtube-player.ps1
-```
-
-## V3 新功能
-
-- **自動復原**：某格 Chrome 視窗消失、啟動逾時或播放器斷線時，會依 10／30／60／120／300 秒自動重開；暫時性播放錯誤在 3 次快速重試後改為每 10 分鐘重試，不再永久停擺；連續正常播放 2 分鐘後重試次數歸零。
-- **每日自動全部重載**：程式保持開啟時，每天依 Windows 本機時間於 01:00 自動執行一次「全部重載」；若當時程式未開啟，當天不補跑，等待隔天 01:00。
-- **單格出聲**：每格標題列的「聲音」只讓該格出聲，其他格自動靜音；「全部靜音」或按 M 恢復靜音。
-- **放大單格**：雙擊標題列或按「放大」，該格填滿整個宮格；再按一次或 Esc 還原。
-- **純影像模式**：按 H 或「純影像」隱藏工具列與標題列；滑鼠移到畫面最上緣會叫出工具列。
-- **配色主題**：在「連結與外觀」側邊欄可選 深夜藍／OLED 純黑／石墨灰／劇院紫金／明亮，選擇會保存到 `config.json` 的 `ui_theme`。
-- **快捷鍵**：F11 全螢幕、H 純影像、M 全部靜音、Esc 依序退出側邊欄／放大／純影像／全螢幕。快捷鍵只在本程式視窗取得焦點時有效（點進某格影片後，焦點在該格 Chrome 內）。
-- **升級保留登入**：V3 安裝器會保留原本的 `config.json` 與 `data\`（含 Google 登入狀態），並自動搬移 V1.x 放在 `_internal\data` 的登入資料。
-
-## V3 打包與安裝
-
-建立 V3 安裝包：
-
-```powershell
-.\build-v3.ps1
-```
-
-產物會輸出到 `release/12宮格直播監控-V3`，並同時產生 `release/12宮格直播監控-V3.zip`。把整個資料夾交給使用者後，雙擊：
-
-```text
-安裝-12宮格直播監控-V3.cmd
-```
-
-安裝器會複製程式到 `%LOCALAPPDATA%\Programs\12宮格直播監控`，並建立桌面與開始功能表捷徑。安裝前請先關閉正在執行的程式。升級時只替換程式檔，`config.json` 與 `data\`（含 Google 登入狀態）不會被移動或刪除。
-
-### 單一 .exe 安裝程式
-
-先執行 `.\build-v3.ps1`，再執行：
-
-```powershell
-.\build-installer-v3.ps1
-```
-
-會產生 `release/12宮格直播監控-V3-安裝程式.exe`（內含整個程式，不需系統管理員權限），雙擊即可安裝或升級。
-
-YouTube 連結編輯器（可選，現在播放器內也有側邊欄可直接改連結）：
-
-```powershell
-.\edit-youtube-links.ps1
-```
-
-YouTube Chrome grid watchdog 啟動器，會啟動一次 Chrome 宮格並寫入 watchdog log：
-
-```powershell
-.\watchdog-youtube-player.ps1
-```
-
-第一次啟動會依照 `config.json` 建立預設資料夾：
-
-- `data/incoming`
-- `data/output`
-- `data/done`
-- `data/failed`
+安裝程式沒有數位簽章，第一次執行時 Windows SmartScreen 會出現警告，按「其他資訊 > 仍要執行」。
 
 ## 使用方式
 
-### 本地影片轉檔
+1. 開啟後預設全螢幕。按「連結與外觀」展開側邊欄。
+2. 在 12 個欄位貼上 YouTube 連結、勾選「啟用」、按「保存並重載」。網址格式不對時會指出是第幾格，不會保存。
+3. 需要 Google 帳戶時按「Google 登入」。程式會關掉監控用的 Chrome，另開一個一般 Chrome 視窗讓你登入；登入後關閉那個視窗，全部頻道會自動重載。登入視窗開著的期間不會啟動任何一格。
+4. 預設靜音並自動播放。是否顯示廣告由 YouTube 帳戶與影片決定。
 
-1. 開啟 GUI。
-2. 確認監控、輸出、完成、失敗資料夾。
-3. 按「開始監控」。
-4. 把影片放進監控資料夾。
-5. 軟體會自動輸出 9:16 MP4 到輸出資料夾。
+### 可以貼的網址
 
-### YouTube 12 宮格
+- 影片或直播：`https://www.youtube.com/watch?v=…`、`https://youtu.be/…`、`https://www.youtube.com/live/…`
+- 播放清單：`https://www.youtube.com/playlist?list=…`
+- 頻道目前的直播：`https://www.youtube.com/channel/UC…/live`。直播重開、影片 ID 改變時會自動跟上。YouTube 不是每個頻道都提供這種嵌入方式（實測中視可用，民視、三立、中天回傳錯誤 150），該格顯示「無法播放」時請改貼影片網址。
+- 不支援 `@帳號` 網址。頻道 ID 可在該頻道頁面「關於 > 分享頻道 > 複製頻道 ID」取得。
 
-1. 雙擊 `run-youtube-player.cmd`，或執行 `.\run-youtube-player.ps1`。
-2. 播放器會預設全螢幕開啟；按「連結與外觀」展開隱藏側邊欄。
-3. 在 12 個欄位貼上 YouTube 連結、勾選「啟用」、按「保存並重載」。
-4. 程式會用共用 Chrome 設定檔開啟啟用的格子，並嵌入單一 4x3 宮格主視窗。
-5. 每格使用官方 YouTube iframe 播放器填滿宮格，不載入留言區；播放停滯時會有限次數自動重新連線。
-6. 要使用 Google 帳戶，按「Google 登入」完成登入後，再按「全部重載」。登入狀態只保存在本機 `data/chrome_monitor_profile`，不會納入 Git。
-7. 預設靜音並自動播放。是否顯示廣告仍由 YouTube 帳戶與影片決定；登入有效的 Premium 帳戶可依 YouTube 規則免廣告。
+### 操作
 
-這一版預設關閉 Telegram 警告，只保留本機 log。之後若要重新開啟，先把 `config.json` 的 `telegram_alerts_enabled` 改成 `true`，再設定環境變數：
+- **單格出聲**：每格標題列的「聲音」只讓該格出聲；「全部靜音」或按 M 恢復靜音。
+- **放大單格**：雙擊標題列或按「放大」；再按一次或 Esc 還原。
+- **純影像模式**：按 H 隱藏工具列與標題列；滑鼠移到畫面最上緣會叫出工具列。
+- **快捷鍵**：F11 全螢幕、H 純影像、M 全部靜音、Esc 依序退出側邊欄／放大／純影像／全螢幕。快捷鍵只在本程式視窗取得焦點時有效。
+- **配色主題**：深夜藍／OLED 純黑／石墨灰／劇院紫金／明亮。
 
-```powershell
-setx TELEGRAM_BOT_TOKEN "你的 bot token"
-setx TELEGRAM_CHAT_ID "你的 chat id"
-```
+## 自動化
 
-設定後請重新開啟 PowerShell，讓新環境變數生效。
+側邊欄「自動化」區塊的設定會立即保存。
 
-## 設定
+- **每日自動全部重載**：預設每天 01:00，可改時間或關閉。電腦當時在睡眠的話，醒來後會補跑一次。程式沒開的時段不補跑。
+- **自動復原**：某格 Chrome 視窗消失、啟動逾時或播放器斷線時，依 10／30／60／120／300 秒自動重開。暫時性播放錯誤在 3 次快速重試後改為每 10 分鐘重試。「影片無法播放」這類錯誤（直播結束、需要登入、不開放嵌入）也會每 10 分鐘重新載入一次。
+- **登入提示**：多格同時因為需要登入而無法播放時，狀態列會提示按「Google 登入」。
+- **Telegram 異常通知**：某格持續異常超過設定的分鐘數時發一則通知，恢復後再發一則。需要先設定環境變數，設定後重新開啟程式：
 
-主要設定在 `config.json`：
+  ```powershell
+  setx TELEGRAM_BOT_TOKEN "你的 bot token"
+  setx TELEGRAM_CHAT_ID "你的 chat id"
+  ```
+
+- **開機自動啟動**：只有安裝版可以勾選，寫入目前使用者的啟動項目。
+- **單一執行個體**：同一時間只能開一個，重複開啟會提示已在執行。
+
+## 記錄檔
+
+- `data\app.log`：啟動與結束、每格狀態變化與錯誤碼、每日重載、登入視窗開關。超過 1 MB 自動輪替，保留 3 份。
+- `data\alerts.log`：每一則異常通知，不論 Telegram 是否開啟都會寫。
+
+## 設定檔
+
+`config.json` 放在程式資料夾，和從哪裡啟動無關：
 
 ```json
 {
-  "watch_dir": "data/incoming",
-  "output_dir": "data/output",
-  "done_dir": "data/done",
-  "failed_dir": "data/failed",
-  "database_path": "data/jobs.sqlite3",
-  "output_width": 1080,
-  "output_height": 1920,
-  "video_crf": 23,
-  "video_preset": "medium",
-  "audio_bitrate": "192k",
-  "stable_wait_seconds": 10,
-  "youtube_slots": [
-    {"title": "YouTube 1", "url": "", "enabled": false}
-  ],
-  "youtube_monitor_interval_seconds": 30,
-  "youtube_reload_after_bad_seconds": 90,
+  "youtube_slots": [{"title": "YouTube 1", "url": "", "enabled": false}],
+  "ui_theme": "midnight",
+  "daily_reload_enabled": true,
+  "daily_reload_time": "01:00",
   "telegram_alerts_enabled": false,
-  "ui_theme": "midnight"
+  "alert_after_minutes": 5
 }
 ```
 
-## 測試
+舊版留下的其他欄位會在第一次保存時移除。設定檔損壞時會改名為 `config.json.broken` 保留，另建一份預設值。
+
+## 開發與打包
 
 ```powershell
-py -m unittest discover tests
+.\install.ps1          # 建立 .venv 並安裝 PySide6
+.\run.ps1              # 從原始碼啟動
+.\.venv\Scripts\python.exe -m unittest discover tests
+.\build.ps1            # 產生 release\12宮格直播監控-<版本> 與 .zip
+.\build-installer.ps1  # 產生 release\12宮格直播監控-<版本>-安裝程式.exe
 ```
+
+版本號只寫在 `app\version.py`，打包腳本與安裝程式都從那裡讀。打包時會排除 `data\` 與使用者的 `config.json`，登入狀態不會被包進安裝程式。
+
+zip 版解壓後雙擊 `安裝-12宮格直播監控.cmd` 也能安裝，效果與單一安裝程式相同。

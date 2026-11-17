@@ -1,7 +1,7 @@
 """Single-file Windows installer for 12宮格直播監控.
 
 Built with PyInstaller --onefile; the application folder travels inside as payload.zip.
-Mirrors install-v3.ps1: keeps config.json and data\\ (Google login) across upgrades and
+Mirrors install.ps1: keeps config.json and data\\ (Google login) across upgrades and
 migrates the V1.x profile from _internal\\data.
 """
 from __future__ import annotations
@@ -14,12 +14,14 @@ import os
 import shutil
 import subprocess
 import sys
+import winreg
 import zipfile
 from pathlib import Path
 
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.version import APP_NAME, APP_VERSION  # noqa: E402  (single source for the version)
 
-APP_NAME = "12宮格直播監控"
-APP_VERSION = "V3"
 EXE_NAME = f"{APP_NAME}.exe"
 
 MB_OK = 0x0
@@ -140,6 +142,22 @@ foreach ($p in $paths) {{
         raise InstallError("建立捷徑失敗：" + result.stderr.decode("mbcs", "ignore").strip()[:300])
 
 
+UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\12GridLiveMonitor"
+
+
+def register_uninstall(install_dir: Path) -> None:
+    """List the app under Windows 設定 > 應用程式, with the app's own --uninstall as the remover."""
+    exe = install_dir / EXE_NAME
+    size_kb = sum(f.stat().st_size for f in install_dir.rglob("*") if f.is_file() and "data" not in f.relative_to(install_dir).parts[:1]) // 1024
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as key:
+        for name, value in {"DisplayName": APP_NAME, "DisplayVersion": APP_VERSION,
+                            "DisplayIcon": str(exe), "InstallLocation": str(install_dir),
+                            "UninstallString": f'"{exe}" --uninstall'}.items():
+            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        for name, value in {"NoModify": 1, "NoRepair": 1, "EstimatedSize": size_kb}.items():
+            winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
+
+
 def message(text: str, flags: int) -> int:
     return ctypes.windll.user32.MessageBoxW(None, text, f"{APP_NAME} {APP_VERSION} 安裝程式", flags)
 
@@ -148,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--silent", action="store_true", help="不顯示對話框")
     parser.add_argument("--target", type=Path, help="安裝到指定資料夾（測試用）")
-    parser.add_argument("--no-shortcuts", action="store_true")
+    parser.add_argument("--no-shortcuts", action="store_true", help="不建立捷徑，也不登錄到應用程式清單")
     args = parser.parse_args(argv)
     install_dir = args.target or default_install_dir()
 
@@ -165,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         kept = install(payload_path(), install_dir)
         if not args.no_shortcuts:
             create_shortcuts(install_dir)
+            register_uninstall(install_dir)
     except (InstallError, OSError) as exc:
         if not args.silent:
             message(f"安裝失敗：\n{exc}\n\n連結設定與登入資料沒有被移動，可修正後再執行一次安裝程式。",

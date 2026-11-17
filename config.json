@@ -1,15 +1,4 @@
 {
-  "watch_dir": "data/incoming",
-  "output_dir": "data/output",
-  "done_dir": "data/done",
-  "failed_dir": "data/failed",
-  "database_path": "data/jobs.sqlite3",
-  "output_width": 1080,
-  "output_height": 1920,
-  "video_crf": 23,
-  "video_preset": "medium",
-  "audio_bitrate": "192k",
-  "stable_wait_seconds": 10,
   "youtube_slots": [
     {
       "title": "中視主頻",
@@ -72,7 +61,9 @@
       "enabled": true
     }
   ],
-  "youtube_monitor_interval_seconds": 30,
-  "youtube_reload_after_bad_seconds": 90,
-  "telegram_alerts_enabled": false
+  "ui_theme": "midnight",
+  "daily_reload_enabled": true,
+  "daily_reload_time": "01:00",
+  "telegram_alerts_enabled": false,
+  "alert_after_minutes": 5
 }

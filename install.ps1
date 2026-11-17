@@ -1,15 +1,5 @@
 $ErrorActionPreference = "Stop"
 
-. "$PSScriptRoot\use-local-ffmpeg.ps1"
-
-if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    throw "ffmpeg was not found in PATH."
-}
-
-if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
-    throw "ffprobe was not found in PATH."
-}
-
 if (-not (Test-Path ".\.venv")) {
     $pythonExe = $null
     $pythonArgs = @()

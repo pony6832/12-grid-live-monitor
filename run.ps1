@@ -1,10 +1,9 @@
 $ErrorActionPreference = "Stop"
-
-. "$PSScriptRoot\use-local-ffmpeg.ps1"
+Set-Location -LiteralPath $PSScriptRoot
 
 if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     Write-Host "Virtual environment not found. Running install.ps1 first."
     .\install.ps1
 }
 
-.\.venv\Scripts\python.exe -m app.main
+.\.venv\Scripts\python.exe -m app.chrome_embed

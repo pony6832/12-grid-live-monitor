@@ -5,32 +5,31 @@ import json
 import tempfile
 import unittest
 
-from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT
+from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, parse_reload_time
+from app.core.paths import CONFIG_PATH, app_root
 
 
 class YouTubeConfigTests(unittest.TestCase):
-    def test_legacy_config_gets_youtube_defaults(self) -> None:
+    def test_config_from_an_older_version_loads_and_drops_unused_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "watch_dir": "incoming",
-                        "output_dir": "output",
-                        "done_dir": "done",
-                        "failed_dir": "failed",
-                        "database_path": "jobs.sqlite3",
-                    }
-                ),
-                encoding="utf-8",
-            )
+            path.write_text(json.dumps({
+                "watch_dir": "incoming", "video_crf": 23, "youtube_monitor_interval_seconds": 30,
+                "youtube_slots": [{"title": "Main", "url": "https://youtu.be/a", "enabled": True}],
+                "ui_theme": "oled",
+            }), encoding="utf-8")
 
             config = AppConfig.load(path)
+            config.save(path)
+            saved = json.loads(path.read_text(encoding="utf-8"))
 
-            self.assertEqual(len(config.youtube_slots), YOUTUBE_SLOT_COUNT)
-            self.assertEqual(config.youtube_monitor_interval_seconds, 30)
-            self.assertEqual(config.youtube_reload_after_bad_seconds, 90)
+            self.assertEqual(config.youtube_slots[0]["title"], "Main")
+            self.assertEqual(config.ui_theme, "oled")
+            self.assertEqual(config.daily_reload_time, "01:00")
+            self.assertTrue(config.daily_reload_enabled)
             self.assertFalse(config.telegram_alerts_enabled)
+            self.assertNotIn("watch_dir", saved)
+            self.assertEqual(len(saved["youtube_slots"]), YOUTUBE_SLOT_COUNT)
 
     def test_short_slot_list_is_normalized_to_twelve_slots(self) -> None:
         config = AppConfig(youtube_slots=[{"title": "Main", "url": "https://youtu.be/a", "enabled": True}])
@@ -39,6 +38,27 @@ class YouTubeConfigTests(unittest.TestCase):
         self.assertEqual(config.youtube_slots[0]["title"], "Main")
         self.assertEqual(config.youtube_slots[0]["enabled"], True)
         self.assertEqual(config.youtube_slots[1]["title"], "YouTube 2")
+
+    def test_unreadable_config_is_kept_aside_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text("{ not json", encoding="utf-8")
+
+            config = AppConfig.load(path)
+
+            self.assertEqual(len(config.youtube_slots), YOUTUBE_SLOT_COUNT)
+            self.assertEqual((Path(tmp) / "config.json.broken").read_text(encoding="utf-8"), "{ not json")
+            self.assertTrue(json.loads(path.read_text(encoding="utf-8"))["daily_reload_enabled"])
+
+    def test_reload_time_falls_back_to_one_oclock(self) -> None:
+        self.assertEqual(parse_reload_time("03:30"), (3, 30))
+        self.assertEqual(parse_reload_time("25:00"), (1, 0))
+        self.assertEqual(parse_reload_time("abc"), (1, 0))
+        self.assertEqual(AppConfig(daily_reload_time="7:05").daily_reload_time, "07:05")
+
+    def test_config_path_does_not_depend_on_the_working_directory(self) -> None:
+        self.assertTrue(CONFIG_PATH.is_absolute())
+        self.assertEqual(CONFIG_PATH.parent, app_root())
 
 
 if __name__ == "__main__":

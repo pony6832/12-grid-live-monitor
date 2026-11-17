@@ -5,9 +5,10 @@ from datetime import datetime
 import ctypes
 from ctypes import wintypes
 import subprocess
+import threading
 import time
 import uuid
-from PySide6.QtCore import QDateTime, QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QDateTime, QEvent, QObject, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,15 +22,22 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from app.chrome_grid import find_chrome
-from app.core.chrome_session import PlayerConnection, browser_args, login_browser_args, stop_profile_browsers
+from app.core import autostart
+from app.core.alerts import SlotAlertTracker
+from app.core.applog import log
+from app.core.chrome_session import (LOGIN_ERRORS, PlayerConnection, browser_args, find_chrome,
+                                     login_browser_args, stop_profile_browsers)
 from app.core.daily_reload import DailyReloadSchedule
 from app.core.player_host import PlayerHost
-from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, normalize_youtube_slots
+from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, normalize_youtube_slots, parse_reload_time
+from app.core.telegram import TelegramNotifier
+from app.core.youtube import YouTubeUrlError, parse_youtube_url
 from app.ui.themes import DEFAULT_THEME, THEMES, build_stylesheet, get_theme
 from app.version import APP_NAME, APP_VERSION
 
@@ -97,18 +105,32 @@ class ChromeEmbedWindow(QMainWindow):
         self.reveal_timer = QTimer(self)
         self.reveal_timer.timeout.connect(self._check_reveal)
         self.login_process: subprocess.Popen[bytes] | None = None
+        self.login_stopper: threading.Thread | None = None
         self.login_timer = QTimer(self)
         self.login_timer.timeout.connect(self._check_login_closed)
-        self.daily_reload_schedule = DailyReloadSchedule(hour=1, minute=0)
+        hour, minute = parse_reload_time(config.daily_reload_time)
+        self.daily_reload_schedule = DailyReloadSchedule(hour=hour, minute=minute,
+                                                         enabled=config.daily_reload_enabled)
         self.daily_reload_timer = QTimer(self)
         self.daily_reload_timer.setInterval(1000)
         self.daily_reload_timer.timeout.connect(self._check_daily_reload)
+        self.alerts = SlotAlertTracker(config.alert_after_minutes * 60)
+        self.notifier = TelegramNotifier(enabled=config.telegram_alerts_enabled)
+        self.health_timer = QTimer(self)
+        self.health_timer.setInterval(30_000)
+        self.health_timer.timeout.connect(self._check_health)
+        self.reload_time_edit = QTimeEdit(QTime(hour, minute))
+        self.reload_check = QCheckBox("每日自動全部重載")
+        self.autostart_check = QCheckBox("開機自動啟動")
+        self.alert_check = QCheckBox("異常時發 Telegram 通知，持續")
+        self.alert_minutes = QSpinBox()
 
         self._build_layout()
         self._connect_events()
         self._install_shortcuts()
         self.apply_theme(self.theme_name, save=False)
         self.daily_reload_timer.start()
+        self.health_timer.start()
         QTimer.singleShot(0, self.reload_enabled_slots)
 
     # ---------- layout ----------
@@ -170,7 +192,7 @@ class ChromeEmbedWindow(QMainWindow):
         self.mute_all_button.setToolTip("所有格靜音（快捷鍵 M）")
         self.clean_button.setToolTip("隱藏工具列與標題列，只留影像（H）。滑鼠移到畫面最上緣可叫出工具列")
         self.fullscreen_button.setToolTip("切換全螢幕（F11）")
-        self.login_button.setToolTip("開啟 YouTube 帳戶頁登入；登入後按「全部重載」")
+        self.login_button.setToolTip("開啟一般 Chrome 視窗登入 Google；登入後關閉該視窗，會自動重載全部頻道")
 
         layout.addWidget(title)
         layout.addWidget(version)
@@ -213,10 +235,38 @@ class ChromeEmbedWindow(QMainWindow):
         keys.setWordWrap(True)
         sidebar_layout.addWidget(keys)
 
+        automation = QLabel("自動化")
+        automation.setObjectName("sectionTitle")
+        sidebar_layout.addWidget(automation)
+        reload_row = QHBoxLayout()
+        self.reload_check.setChecked(self.config.daily_reload_enabled)
+        self.reload_time_edit.setDisplayFormat("HH:mm")
+        self.reload_time_edit.setToolTip("電腦當時在睡眠的話，醒來後會補跑一次")
+        reload_row.addWidget(self.reload_check, stretch=1)
+        reload_row.addWidget(self.reload_time_edit)
+        sidebar_layout.addLayout(reload_row)
+        alert_row = QHBoxLayout()
+        self.alert_check.setChecked(self.config.telegram_alerts_enabled)
+        self.alert_check.setToolTip("需要先設定環境變數 TELEGRAM_BOT_TOKEN 與 TELEGRAM_CHAT_ID")
+        self.alert_minutes.setRange(1, 120)
+        self.alert_minutes.setValue(self.config.alert_after_minutes)
+        self.alert_minutes.setSuffix(" 分鐘")
+        alert_row.addWidget(self.alert_check, stretch=1)
+        alert_row.addWidget(self.alert_minutes)
+        sidebar_layout.addLayout(alert_row)
+        self.autostart_check.setChecked(autostart.is_enabled())
+        if not autostart.available():
+            self.autostart_check.setEnabled(False)
+            self.autostart_check.setToolTip("安裝版才能設定開機自動啟動")
+        sidebar_layout.addWidget(self.autostart_check)
+
         links = QLabel("YouTube 連結")
         links.setObjectName("sectionTitle")
         sidebar_layout.addWidget(links)
-        hint = QLabel("勾選要監看的頻道，保存後會重新載入啟用格。")
+        hint = QLabel("勾選要監看的頻道，保存後會重新載入啟用格。\n"
+                      "也可貼 youtube.com/channel/UC…/live 跟隨頻道目前的直播；"
+                      "部分頻道 YouTube 不提供，顯示無法播放時請改貼影片網址。")
+        hint.setWordWrap(True)
         hint.setObjectName("hintText")
         sidebar_layout.addWidget(hint)
 
@@ -255,6 +305,11 @@ class ChromeEmbedWindow(QMainWindow):
         self.fullscreen_button.clicked.connect(self.toggle_fullscreen)
         self.theme_combo.currentIndexChanged.connect(
             lambda _: self.apply_theme(self.theme_combo.currentData()))
+        self.reload_check.toggled.connect(lambda _: self._save_automation())
+        self.reload_time_edit.timeChanged.connect(lambda _: self._save_automation())
+        self.alert_check.toggled.connect(lambda _: self._save_automation())
+        self.alert_minutes.valueChanged.connect(lambda _: self._save_automation())
+        self.autostart_check.toggled.connect(self._set_autostart)
 
     def _install_shortcuts(self) -> None:
         # Shortcuts only fire while this window (not an embedded Chrome) has keyboard focus.
@@ -358,21 +413,65 @@ class ChromeEmbedWindow(QMainWindow):
         current = now if now is not None else QDateTime.currentDateTime().toPython()
         if not self.daily_reload_schedule.should_trigger(current):
             return False
-        self.reload_enabled_slots()
-        self.status_label.setText("每日 01:00 已自動全部重載")
+        label = self.daily_reload_schedule.label()
+        log.info("每日 %s 自動全部重載", label)
+        if self.reload_enabled_slots():
+            self.status_label.setText(f"每日 {label} 已自動全部重載")
         return True
 
+    def _save_automation(self) -> None:
+        time_value = self.reload_time_edit.time()
+        self.config.daily_reload_enabled = self.reload_check.isChecked()
+        self.config.daily_reload_time = f"{time_value.hour():02d}:{time_value.minute():02d}"
+        self.config.telegram_alerts_enabled = self.alert_check.isChecked()
+        self.config.alert_after_minutes = self.alert_minutes.value()
+        self.config.save()
+        self.daily_reload_schedule.enabled = self.config.daily_reload_enabled
+        if (time_value.hour(), time_value.minute()) != (self.daily_reload_schedule.hour,
+                                                        self.daily_reload_schedule.minute):
+            self.daily_reload_schedule.set_time(time_value.hour(), time_value.minute())
+        self.notifier.enabled = self.config.telegram_alerts_enabled
+        self.alerts.after_seconds = self.config.alert_after_minutes * 60
+        self.status_label.setText("自動化設定已保存")
+
+    def _set_autostart(self, enabled: bool) -> None:
+        try:
+            autostart.set_enabled(enabled)
+        except OSError as exc:
+            log.warning("開機自動啟動設定失敗：%s", exc)
+            self.status_label.setText("開機自動啟動設定失敗")
+            return
+        self.status_label.setText("已設定開機自動啟動" if enabled else "已取消開機自動啟動")
+
     def save_and_reload(self) -> None:
-        self.config.youtube_slots = [row.to_config() for row in self.link_rows]
+        slots = [row.to_config() for row in self.link_rows]
+        for index, slot in enumerate(slots):
+            if slot["enabled"] and slot["url"]:
+                try:
+                    parse_youtube_url(str(slot["url"]))
+                except YouTubeUrlError as exc:
+                    self.status_label.setText(f"第 {index + 1} 格網址有問題：{exc}")
+                    self.link_rows[index].url_edit.setFocus()
+                    return
+        self.config.youtube_slots = slots
         self.config.save()
         for slot, slot_config in zip(self.slots, self.config.youtube_slots):
             slot.update_config(slot_config)
-        self.reload_enabled_slots()
-        self.status_label.setText("連結已保存並重載")
+        if self.reload_enabled_slots():
+            self.status_label.setText("連結已保存並重載")
 
-    def reload_enabled_slots(self) -> None:
+    def login_active(self) -> bool:
+        return self.login_stopper is not None or self.login_process is not None
+
+    def reload_enabled_slots(self) -> bool:
+        """Restart every enabled slot. Returns False when deferred because a sign-in is open."""
         self.launch_timer.stop()
         self.launch_queue.clear()
+        if self.login_active():
+            # A monitor Chrome started now would merge into the plain sign-in browser, which has no
+            # debugging port: every slot would time out. Closing the sign-in window reloads anyway.
+            self.status_label.setText("登入視窗開啟中，關閉登入視窗後會自動重載")
+            return False
         for slot in self.slots:
             slot.stop_chrome()
         for slot in self.slots:
@@ -383,9 +482,13 @@ class ChromeEmbedWindow(QMainWindow):
         if self.launch_queue:
             self.launch_timer.start(800)
         self._refresh_summary()
+        return True
 
     def request_launch(self, slot: ChromeEmbedSlot) -> None:
         # Launches go through one queue: concurrent starts on a shared Chrome profile race each other.
+        if self.login_active():
+            self.status_label.setText("登入視窗開啟中，關閉登入視窗後會自動重載")
+            return
         if slot not in self.launch_queue:
             self.launch_queue.append(slot)
         if not self.launch_timer.isActive():
@@ -401,26 +504,61 @@ class ChromeEmbedWindow(QMainWindow):
 
     def open_login(self) -> None:
         # One sign-in window at a time: a second click used to stack another window on the first.
-        if self.login_process is not None and self.login_process.poll() is None:
+        if self.login_active():
             self.status_label.setText("登入視窗已開啟，請在已開啟的 Chrome 視窗完成登入")
             return
         # Google rejects sign-in in a Chrome started with a debugging port, so stop the monitor
-        # browser and sign in with a plain one on the same profile.
+        # browser and sign in with a plain one on the same profile. Stopping takes a few seconds
+        # (it asks Windows for every Chrome command line), so it runs off the UI thread.
         self.close_all_chrome()
-        stop_profile_browsers()
-        self.login_process = subprocess.Popen(
-            [find_chrome(), *login_browser_args(), "--new-window", "https://www.youtube.com/account"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.login_timer.start(1000)
-        self.status_label.setText("請在新開的 Chrome 視窗登入 Google；登入後關閉該視窗，會自動重載全部頻道")
+        log.info("開啟 Google 登入視窗")
+        self.login_stopper = threading.Thread(target=stop_profile_browsers, daemon=True)
+        self.login_stopper.start()
+        self.login_timer.start(250)
+        self.status_label.setText("正在準備登入視窗…")
 
     def _check_login_closed(self) -> None:
+        if self.login_stopper is not None:
+            if self.login_stopper.is_alive():
+                return
+            self.login_stopper = None
+            try:
+                self.login_process = subprocess.Popen(
+                    [find_chrome(), *login_browser_args(), "--new-window", "https://www.youtube.com/account"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError as exc:
+                log.error("登入視窗開啟失敗：%s", exc)
+                self.login_timer.stop()
+                self.reload_enabled_slots()
+                self.status_label.setText(f"登入視窗開啟失敗：{exc}")
+                return
+            self.login_timer.start(1000)
+            self.status_label.setText("請在新開的 Chrome 視窗登入 Google；登入後關閉該視窗，會自動重載全部頻道")
+            return
         if self.login_process is None or self.login_process.poll() is None:
             return
         self.login_timer.stop()
         self.login_process = None
+        log.info("登入視窗已關閉，重載全部頻道")
         self.reload_enabled_slots()
         self.status_label.setText("登入視窗已關閉，已重載全部頻道")
+
+    def _check_health(self) -> None:
+        """Every 30 s: hint at a missing sign-in, and send alerts for slots that stay unhealthy."""
+        now = time.monotonic()
+        running = [slot for slot in self.slots if slot.want_running]
+        need_login = [slot for slot in running if slot.error_code() in LOGIN_ERRORS]
+        if running and len(need_login) >= max(2, len(running) // 2) and not self.login_active():
+            self.status_label.setText(f"{len(need_login)} 格無法播放，可能需要登入：請按「Google 登入」")
+        for slot in self.slots:
+            if not slot.want_running:
+                self.alerts.forget(slot.index)
+                continue
+            message = self.alerts.observe(slot.index, slot.title_text(), slot.status_label.text(),
+                                          slot.status_kind in ("ok", "idle"), now)
+            if message:
+                log.warning(message)
+                threading.Thread(target=self.notifier.send_alert, args=(message,), daemon=True).start()
 
     def close_all_chrome(self) -> None:
         self.launch_timer.stop()
@@ -435,6 +573,7 @@ class ChromeEmbedWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         self.daily_reload_timer.stop()
+        self.health_timer.stop()
         self.reveal_timer.stop()
         self.login_timer.stop()
         self.close_all_chrome()
@@ -458,6 +597,8 @@ class ChromeEmbedSlot(QFrame):
         self.pending_process = None
         self.connection = None
         self.marker = ""
+        self.playback_url = ""
+        self.deadline = 0.0
         self.last_size = None
         self.chrome_top = 0
         self.want_running = False
@@ -567,7 +708,14 @@ class ChromeEmbedSlot(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
 
+    def error_code(self) -> int | None:
+        return self.connection.health.error if self.connection else None
+
     def _set_status(self, text: str, kind: str) -> None:
+        if text != self.status_label.text():
+            code = self.error_code()
+            log.info("格 %02d %s：%s%s", self.index + 1, self.title_text(), text,
+                     f"（錯誤碼 {code}）" if code else "")
         self.status_kind = kind
         self.status_label.setText(text)
         self.status_dot.setStyleSheet(f"color: {self.tokens[kind]};")
@@ -598,6 +746,7 @@ class ChromeEmbedSlot(QFrame):
             self._launch_and_embed(url)
         except Exception as exc:
             self.want_running = False
+            log.error("格 %02d 啟動失敗：%r", self.index + 1, exc)
             self._set_status(f"失敗: {exc}", "danger")
             return
 
@@ -710,7 +859,10 @@ class ChromeEmbedSlot(QFrame):
         }
         if state == "playing":
             self.relaunch_attempts = 0
-        self._set_status(*labels[state])
+        text, kind = labels[state]
+        if state == "error" and self.error_code() in LOGIN_ERRORS:
+            text = "無法播放（需登入或不開放嵌入）"
+        self._set_status(text, kind)
 
 
 class LinkEditorRow(QFrame):

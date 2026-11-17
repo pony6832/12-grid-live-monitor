@@ -3,21 +3,18 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import json
+import re
+
+from app.core.paths import CONFIG_PATH, DATA_DIR
 
 
-CONFIG_PATH = Path("config.json")
 YOUTUBE_SLOT_COUNT = 12
+DEFAULT_RELOAD_TIME = "01:00"
 
 
 def default_youtube_slots() -> list[dict[str, object]]:
-    return [
-        {
-            "title": f"YouTube {index + 1}",
-            "url": "",
-            "enabled": False,
-        }
-        for index in range(YOUTUBE_SLOT_COUNT)
-    ]
+    return [{"title": f"YouTube {index + 1}", "url": "", "enabled": False}
+            for index in range(YOUTUBE_SLOT_COUNT)]
 
 
 def normalize_youtube_slots(slots: object) -> list[dict[str, object]]:
@@ -25,48 +22,38 @@ def normalize_youtube_slots(slots: object) -> list[dict[str, object]]:
     if isinstance(slots, list):
         for index, raw_slot in enumerate(slots[:YOUTUBE_SLOT_COUNT]):
             slot = raw_slot if isinstance(raw_slot, dict) else {}
-            normalized.append(
-                {
-                    "title": str(slot.get("title") or f"YouTube {index + 1}"),
-                    "url": str(slot.get("url") or ""),
-                    "enabled": bool(slot.get("enabled", False)),
-                }
-            )
-
-    for index in range(len(normalized), YOUTUBE_SLOT_COUNT):
-        normalized.append(
-            {
-                "title": f"YouTube {index + 1}",
-                "url": "",
-                "enabled": False,
-            }
-        )
+            normalized.append({
+                "title": str(slot.get("title") or f"YouTube {index + 1}"),
+                "url": str(slot.get("url") or ""),
+                "enabled": bool(slot.get("enabled", False)),
+            })
+    normalized.extend(default_youtube_slots()[len(normalized):])
     return normalized
+
+
+def parse_reload_time(value: object) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", str(value).strip())
+    if match and int(match[1]) < 24 and int(match[2]) < 60:
+        return int(match[1]), int(match[2])
+    return 1, 0
 
 
 @dataclass(slots=True)
 class AppConfig:
-    watch_dir: str = "data/incoming"
-    output_dir: str = "data/output"
-    done_dir: str = "data/done"
-    failed_dir: str = "data/failed"
-    database_path: str = "data/jobs.sqlite3"
-    output_width: int = 1080
-    output_height: int = 1920
-    video_crf: int = 23
-    video_preset: str = "medium"
-    audio_bitrate: str = "192k"
-    stable_wait_seconds: int = 10
     youtube_slots: list[dict[str, object]] = field(default_factory=default_youtube_slots)
-    youtube_monitor_interval_seconds: int = 30
-    youtube_reload_after_bad_seconds: int = 90
-    telegram_alerts_enabled: bool = False
     ui_theme: str = "midnight"
+    daily_reload_enabled: bool = True
+    daily_reload_time: str = DEFAULT_RELOAD_TIME
+    telegram_alerts_enabled: bool = False
+    alert_after_minutes: int = 5
 
     def __post_init__(self) -> None:
         self.youtube_slots = normalize_youtube_slots(self.youtube_slots)
-        self.youtube_monitor_interval_seconds = max(5, int(self.youtube_monitor_interval_seconds))
-        self.youtube_reload_after_bad_seconds = max(15, int(self.youtube_reload_after_bad_seconds))
+        self.daily_reload_time = "%02d:%02d" % parse_reload_time(self.daily_reload_time)
+        try:
+            self.alert_after_minutes = min(120, max(1, int(self.alert_after_minutes)))
+        except (TypeError, ValueError):
+            self.alert_after_minutes = 5
 
     @classmethod
     def load(cls, path: Path = CONFIG_PATH) -> "AppConfig":
@@ -74,18 +61,24 @@ class AppConfig:
             config = cls()
             config.save(path)
             return config
-        data = json.loads(path.read_text(encoding="utf-8"))
-        known = {field: data[field] for field in cls.__dataclass_fields__ if field in data}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            data = None
+        if not isinstance(data, dict):
+            # Keep the unreadable file for the user instead of silently overwriting their links.
+            path.replace(path.with_name(path.name + ".broken"))
+            config = cls()
+            config.save(path)
+            return config
+        # Keys from older versions (video transcoding settings) are simply dropped.
+        known = {name: data[name] for name in cls.__dataclass_fields__ if name in data}
         return cls(**known)
 
     def save(self, path: Path = CONFIG_PATH) -> None:
-        path.write_text(
-            json.dumps(asdict(self), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        temp.replace(path)
 
     def ensure_directories(self) -> None:
-        for directory in [self.watch_dir, self.output_dir, self.done_dir, self.failed_dir]:
-            Path(directory).mkdir(parents=True, exist_ok=True)
-        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-        Path("data").mkdir(parents=True, exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)

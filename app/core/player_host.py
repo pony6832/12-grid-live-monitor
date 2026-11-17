@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import json
 import re
 
-from app.core.youtube import parse_youtube_url
+from app.core.youtube import YouTubeUrlError, parse_youtube_url
 
 
 PAGE = r'''<!doctype html>
@@ -27,16 +27,28 @@ window.monitorSnapshot = () => ({
   viewport: [innerWidth, innerHeight],
   rect: document.querySelector('iframe')?.getBoundingClientRect().toJSON(),
 });
+const events = {
+  onReady:e=>{ready=true; e.target.mute(); e.target.playVideo();},
+  onError:e=>{errorCode=e.data;},
+  onStateChange:e=>{if(e.data===1) errorCode=null;}
+};
+if (config.channelId) {
+  // The iframe API has no "current live stream of a channel" option, so the frame is written
+  // by hand with the live_stream embed and the API attaches to it.
+  const frame = document.createElement('iframe');
+  frame.id = 'player';
+  frame.allow = 'autoplay; encrypted-media; picture-in-picture';
+  frame.src = 'https://www.youtube.com/embed/live_stream?' + new URLSearchParams({
+    channel:config.channelId, enablejsapi:1, autoplay:1, mute:1, playsinline:1, controls:1, rel:0,
+    origin:location.origin});
+  document.getElementById('player').replaceWith(frame);
+}
 window.onYouTubeIframeAPIReady = () => {
-  player = new YT.Player('player', {
+  player = config.channelId ? new YT.Player('player', {events}) : new YT.Player('player', {
     width:'100%', height:'100%', videoId:config.videoId,
     playerVars:{autoplay:1,mute:1,playsinline:1,controls:1,rel:0,
       origin:location.origin, ...(config.playlistId ? {listType:'playlist',list:config.playlistId} : {})},
-    events:{
-      onReady:e=>{ready=true; e.target.mute(); e.target.playVideo();},
-      onError:e=>{errorCode=e.data;},
-      onStateChange:e=>{if(e.data===1) errorCode=null;}
-    }
+    events
   });
 };
 </script><script src="https://www.youtube.com/iframe_api"></script></body></html>'''
@@ -49,8 +61,12 @@ class PlayerHost:
                 query = parse_qs(urlsplit(self.path).query)
                 video = query.get('v', [''])[0]
                 playlist = query.get('list', [''])[0]
-                if urlsplit(self.path).path != '/player' or (not video and not playlist):
+                channel = query.get('c', [''])[0]
+                if urlsplit(self.path).path != '/player' or not (video or playlist or channel):
                     self.send_error(404)
+                    return
+                if channel and not re.fullmatch(r'UC[A-Za-z0-9_-]{22}', channel):
+                    self.send_error(400)
                     return
                 if video and not re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
                     self.send_error(400)
@@ -58,7 +74,7 @@ class PlayerHost:
                 if playlist and not re.fullmatch(r'[A-Za-z0-9_-]+', playlist):
                     self.send_error(400)
                     return
-                config = json.dumps({'videoId': video, 'playlistId': playlist})
+                config = json.dumps({'videoId': video, 'playlistId': playlist, 'channelId': channel})
                 data = PAGE.replace('__CONFIG__', config).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -78,7 +94,10 @@ class PlayerHost:
 
     def player_url(self, url: str) -> str:
         target = parse_youtube_url(url)
-        return self.origin + '/player?' + urlencode({'v': target.video_id or '', 'list': target.playlist_id or ''})
+        if target.channel_id and not re.fullmatch(r'UC[A-Za-z0-9_-]{22}', target.channel_id):
+            raise YouTubeUrlError('頻道 ID 格式不對，應為 UC 開頭共 24 個字元')
+        return self.origin + '/player?' + urlencode({
+            'v': target.video_id or '', 'list': target.playlist_id or '', 'c': target.channel_id or ''})
 
     def close(self):
         self.server.shutdown()

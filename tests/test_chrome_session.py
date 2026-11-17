@@ -57,10 +57,23 @@ class PlaybackHealthTests(unittest.TestCase):
         health = PlaybackHealth()
         self.assertEqual(health.observe({'state': 2}, health.last_progress + 100), ('paused', False))
 
-    def test_permanent_errors_never_reload(self):
+    def test_permanent_errors_reload_only_every_ten_minutes(self):
         for error in [100, 101, 150, 153]:
             health = PlaybackHealth()
-            self.assertEqual(health.observe({'error': error}, health.last_progress + 100), ('error', False))
+            start = health.last_progress
+            self.assertEqual(health.observe({'error': error}, start + 100), ('error', False))
+            self.assertEqual(health.observe({'error': error}, start + 699), ('error', False))
+            self.assertEqual(health.observe({'error': error}, start + 700), ('error', True))
+            self.assertEqual(health.observe({'error': error}, start + 703), ('error', False))
+            self.assertEqual(health.observe({'error': error}, start + 1300), ('error', True))
+            self.assertEqual(health.error, error)
+
+    def test_recovery_clears_the_permanent_error_timer(self):
+        health = PlaybackHealth()
+        start = health.last_progress
+        health.observe({'error': 150}, start + 100)
+        self.assertEqual(health.observe({'state': 1, 'time': 3}, start + 400), ('playing', False))
+        self.assertEqual(health.observe({'error': 150}, start + 701), ('error', False))
 
     def test_transient_errors_back_off_then_keep_retrying_slowly(self):
         health = PlaybackHealth()

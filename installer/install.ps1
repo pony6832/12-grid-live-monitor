@@ -56,6 +56,18 @@ foreach ($path in $shortcutPaths) {
     $shortcut.Save()
 }
 
+# List the app under Windows 設定 > 應用程式; the app removes itself with --uninstall.
+if (-not $NoShortcuts) {
+    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\12GridLiveMonitor"
+    New-Item -Path $uninstallKey -Force | Out-Null
+    Set-ItemProperty -Path $uninstallKey -Name DisplayName -Value $appName
+    Set-ItemProperty -Path $uninstallKey -Name DisplayIcon -Value $exePath
+    Set-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installDir
+    Set-ItemProperty -Path $uninstallKey -Name UninstallString -Value "`"$exePath`" --uninstall"
+    Set-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -Type DWord
+    Set-ItemProperty -Path $uninstallKey -Name NoRepair -Value 1 -Type DWord
+}
+
 Write-Host "安裝完成：$installDir"
 if ($upgraded) {
     Write-Host "已保留原本的連結設定與 Google 登入狀態。"

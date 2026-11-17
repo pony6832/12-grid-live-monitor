@@ -6,13 +6,15 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 import os
 
+from app.core.paths import DATA_DIR
+
 
 class TelegramNotifier:
     def __init__(
         self,
         *,
         enabled: bool,
-        log_path: Path = Path("data/youtube_monitor.log"),
+        log_path: Path = DATA_DIR / "alerts.log",
         timeout_seconds: int = 10,
     ) -> None:
         self.enabled = enabled

@@ -45,8 +45,8 @@ class DailyReloadWindowTests(unittest.TestCase):
     def dispose_window(self, window):
         window.launch_timer.stop()
         window.reveal_timer.stop()
-        if hasattr(window, 'daily_reload_timer'):
-            window.daily_reload_timer.stop()
+        window.daily_reload_timer.stop()
+        window.health_timer.stop()
         window.player_host.close()
 
     def test_due_schedule_uses_existing_reload_path_and_updates_status(self):
@@ -94,18 +94,24 @@ class LoginWindowTests(unittest.TestCase):
         window.launch_timer.stop()
         window.reveal_timer.stop()
         window.login_timer.stop()
+        window.health_timer.stop()
         window.daily_reload_timer.stop()
         window.player_host.close()
+
+    def open_login(self, window):
+        """Click 登入 and let the background stop finish, so the next poll opens the browser."""
+        window.open_login()
+        window.login_stopper.join(5)
+        window._check_login_closed()
 
     def test_login_uses_plain_chrome_once_and_reloads_after_it_closes(self):
         window = self.make_window()
         try:
             with patch('app.ui.chrome_embed_window.subprocess.Popen') as popen, \
-                    patch('app.ui.chrome_embed_window.stop_profile_browsers') as stop_browsers, \
-                    patch.object(window, 'reload_enabled_slots') as reload_slots:
+                    patch('app.ui.chrome_embed_window.stop_profile_browsers') as stop_browsers:
                 login = popen.return_value
                 login.poll.return_value = None
-                window.open_login()
+                self.open_login(window)
                 window.open_login()
                 self.assertEqual(popen.call_count, 1)
                 stop_browsers.assert_called_once()
@@ -113,14 +119,73 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertFalse(any('remote-debugging' in a for a in args))
                 self.assertTrue(window.login_timer.isActive())
 
-                window._check_login_closed()
-                reload_slots.assert_not_called()
-                login.poll.return_value = 0
-                window._check_login_closed()
-                reload_slots.assert_called_once()
+                with patch.object(window, 'reload_enabled_slots') as reload_slots:
+                    window._check_login_closed()
+                    reload_slots.assert_not_called()
+                    login.poll.return_value = 0
+                    window._check_login_closed()
+                    reload_slots.assert_called_once()
                 self.assertFalse(window.login_timer.isActive())
-                self.assertIsNone(window.login_process)
+                self.assertFalse(window.login_active())
         finally:
+            self.dispose_window(window)
+
+    def test_nothing_launches_while_the_login_window_is_open(self):
+        window = self.make_window()
+        window.slots[0].update_config({'title': 'T', 'url': 'https://youtu.be/abcdefghijk', 'enabled': True})
+        try:
+            with patch('app.ui.chrome_embed_window.subprocess.Popen') as popen, \
+                    patch('app.ui.chrome_embed_window.stop_profile_browsers'):
+                popen.return_value.poll.return_value = None
+                self.open_login(window)
+                self.assertFalse(window.reload_enabled_slots())
+                window.request_launch(window.slots[0])
+                window.slots[0].reload_chrome()
+                self.assertTrue(window._check_daily_reload(datetime(2026, 11, 12, 1, 0, 0)))
+                self.assertEqual(window.launch_queue, [])
+                self.assertFalse(window.launch_timer.isActive())
+                self.assertEqual(popen.call_count, 1)
+
+                popen.return_value.poll.return_value = 0
+                window._check_login_closed()
+                self.assertEqual(window.launch_queue, [window.slots[0]])
+        finally:
+            self.dispose_window(window)
+
+    def test_bad_link_is_reported_instead_of_saved(self):
+        window = self.make_window()
+        try:
+            window.link_rows[2].url_edit.setText('https://example.com/watch?v=abc')
+            window.link_rows[2].enabled_check.setChecked(True)
+            before = list(window.config.youtube_slots)
+            with patch.object(AppConfig, 'save') as save, \
+                    patch.object(window, 'reload_enabled_slots') as reload_slots:
+                window.save_and_reload()
+                save.assert_not_called()
+                reload_slots.assert_not_called()
+            self.assertEqual(window.config.youtube_slots, before)
+            self.assertIn('第 3 格', window.status_label.text())
+        finally:
+            self.dispose_window(window)
+
+    def test_many_login_errors_point_at_the_login_button(self):
+        window = self.make_window()
+
+        class Health:
+            error = 150
+
+        class Connection:
+            health = Health()
+
+        try:
+            for slot in window.slots[:4]:
+                slot.want_running = True
+                slot.connection = Connection()
+            window._check_health()
+            self.assertIn('Google 登入', window.status_label.text())
+        finally:
+            for slot in window.slots:
+                slot.connection = None
             self.dispose_window(window)
 
     def test_browser_args_hide_automation_flag(self):
