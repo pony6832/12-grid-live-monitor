@@ -5,7 +5,7 @@ import json
 import tempfile
 import unittest
 
-from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, parse_reload_time
+from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, parse_reload_time, slot_display_name
 from app.core.paths import CONFIG_PATH, app_root
 
 
@@ -37,7 +37,18 @@ class YouTubeConfigTests(unittest.TestCase):
         self.assertEqual(len(config.youtube_slots), YOUTUBE_SLOT_COUNT)
         self.assertEqual(config.youtube_slots[0]["title"], "Main")
         self.assertEqual(config.youtube_slots[0]["enabled"], True)
-        self.assertEqual(config.youtube_slots[1]["title"], "YouTube 2")
+        self.assertEqual(config.youtube_slots[1]["title"], "")
+        self.assertEqual(slot_display_name(config.youtube_slots[1], 1), "YouTube 2")
+
+    def test_old_default_titles_become_automatic(self) -> None:
+        config = AppConfig(youtube_slots=[
+            {"title": "YouTube 1", "url": "https://youtu.be/a", "enabled": True},
+            {"title": "我的台", "url": "https://youtu.be/b", "enabled": True, "channel": "某頻道"},
+            {"title": "", "url": "https://youtu.be/c", "enabled": True, "channel": "頻道C"},
+        ])
+        self.assertEqual(config.youtube_slots[0]["title"], "")
+        self.assertEqual(slot_display_name(config.youtube_slots[1], 1), "我的台")
+        self.assertEqual(slot_display_name(config.youtube_slots[2], 2), "頻道C")
 
     def test_unreadable_config_is_kept_aside_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

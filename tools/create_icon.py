@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from app.edition import current  # noqa: E402  (LIVE_MONITOR_EDITION picks 12 or 6)
+
 ASSET_DIR = ROOT / "assets"
-PNG_PATH = ASSET_DIR / "12grid-live-monitor-icon.png"
-ICO_PATH = ASSET_DIR / "12grid-live-monitor-icon.ico"
+PNG_PATH = ASSET_DIR / f"{current.icon}.png"
+ICO_PATH = ASSET_DIR / f"{current.icon}.ico"
 
 
 def main() -> None:
@@ -27,15 +31,15 @@ def main() -> None:
 
     grid_margin = 165
     gap = 18
-    cell = (size - grid_margin * 2 - gap * 3) // 4
+    cell = (size - grid_margin * 2 - gap * (current.columns - 1)) // current.columns
     colors = [
         (255, 64, 90, 255),
         (38, 198, 218, 255),
         (96, 232, 132, 255),
         (255, 196, 64, 255),
     ]
-    for row in range(3):
-        for col in range(4):
+    for row in range(current.rows):
+        for col in range(current.columns):
             x = grid_margin + col * (cell + gap)
             y = grid_margin + row * (cell + gap)
             fill = (30, 38, 50, 255)
@@ -51,7 +55,9 @@ def main() -> None:
     badge = [size - 310, size - 275, size - 105, size - 105]
     draw.rounded_rectangle(badge, radius=46, fill=(255, 42, 82, 255), outline=(255, 255, 255, 230), width=6)
     font = load_font(86)
-    draw.text((badge[0] + 42, badge[1] + 38), "12", font=font, fill=(255, 255, 255, 255))
+    label = str(current.slot_count)
+    width = draw.textlength(label, font=font)
+    draw.text(((badge[0] + badge[2] - width) / 2, badge[1] + 38), label, font=font, fill=(255, 255, 255, 255))
 
     image.save(PNG_PATH)
     image.save(

@@ -1,0 +1,45 @@
+{
+  "youtube_slots": [
+    {
+      "channel": "中視新聞 HD直播頻道｜Taiwan CTV news HD Live",
+      "title": "",
+      "url": "https://www.youtube.com/watch?v=TCnaIE_SAtM",
+      "enabled": true
+    },
+    {
+      "channel": "民視新聞網 Formosa TV News network",
+      "title": "",
+      "url": "https://www.youtube.com/watch?v=ylYJSBUgaMA",
+      "enabled": true
+    },
+    {
+      "channel": "",
+      "title": "",
+      "url": "https://www.youtube.com/watch?v=pF507BLtbqU",
+      "enabled": true
+    },
+    {
+      "channel": "",
+      "title": "",
+      "url": "https://youtu.be/vr3XyVCR4T0",
+      "enabled": true
+    },
+    {
+      "channel": "",
+      "title": "",
+      "url": "https://www.youtube.com/watch?v=baDV1O5EBP0",
+      "enabled": true
+    },
+    {
+      "channel": "",
+      "title": "",
+      "url": "https://www.youtube.com/watch?v=9gx5EIyHmsw",
+      "enabled": true
+    }
+  ],
+  "ui_theme": "midnight",
+  "daily_reload_enabled": true,
+  "daily_reload_time": "01:00",
+  "telegram_alerts_enabled": false,
+  "alert_after_minutes": 5
+}

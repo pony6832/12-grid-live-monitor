@@ -1,4 +1,4 @@
-"""Single-file Windows installer for 12宮格直播監控.
+"""Single-file Windows installer for 12宮格直播監控 and 6宮格直播監控.
 
 Built with PyInstaller --onefile; the application folder travels inside as payload.zip.
 Mirrors install.ps1: keeps config.json and data\\ (Google login) across upgrades and
@@ -20,7 +20,8 @@ from pathlib import Path
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.version import APP_NAME, APP_VERSION  # noqa: E402  (single source for the version)
+from app.edition import current  # noqa: E402  (LIVE_MONITOR_EDITION picks the app)
+from app.version import APP_NAME, APP_VERSION  # noqa: E402
 
 EXE_NAME = f"{APP_NAME}.exe"
 
@@ -142,7 +143,7 @@ foreach ($p in $paths) {{
         raise InstallError("建立捷徑失敗：" + result.stderr.decode("mbcs", "ignore").strip()[:300])
 
 
-UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\12GridLiveMonitor"
+UNINSTALL_KEY = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{current.registry_name}"
 
 
 def register_uninstall(install_dir: Path) -> None:

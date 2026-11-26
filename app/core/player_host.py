@@ -22,6 +22,7 @@ window.monitorSnapshot = () => ({
   time: ready ? player.getCurrentTime() : 0,
   duration: ready ? player.getDuration() : 0,
   videoId: ready ? player.getVideoData().video_id : config.videoId,
+  author: ready ? (player.getVideoData().author || '') : '',
   error: errorCode,
   chromeTop: Math.max(0, outerHeight - innerHeight),
   viewport: [innerWidth, innerHeight],

@@ -10,9 +10,10 @@ import winreg
 from app.core import autostart, single_instance
 from app.core.chrome_session import stop_profile_browsers
 from app.core.paths import app_root, is_frozen
+from app.edition import current
 from app.version import APP_NAME
 
-UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\12GridLiveMonitor"
+UNINSTALL_KEY = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{current.registry_name}"
 MB_YESNO, MB_ICONQUESTION, MB_ICONINFO, MB_DEFBUTTON2, IDYES = 0x4, 0x20, 0x40, 0x100, 6
 
 

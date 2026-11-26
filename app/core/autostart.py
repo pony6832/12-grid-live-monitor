@@ -5,9 +5,10 @@ import sys
 import winreg
 
 from app.core.paths import is_frozen
+from app.edition import current
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE_NAME = "12GridLiveMonitor"
+VALUE_NAME = current.registry_name
 
 
 def available() -> bool:

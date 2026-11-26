@@ -6,29 +6,44 @@ import json
 import re
 
 from app.core.paths import CONFIG_PATH, DATA_DIR
+from app.edition import current
 
 
-YOUTUBE_SLOT_COUNT = 12
+YOUTUBE_SLOT_COUNT = current.slot_count
 DEFAULT_RELOAD_TIME = "01:00"
 
 
-def default_youtube_slots() -> list[dict[str, object]]:
-    return [{"title": f"YouTube {index + 1}", "url": "", "enabled": False}
-            for index in range(YOUTUBE_SLOT_COUNT)]
+def default_title(index: int) -> str:
+    return f"YouTube {index + 1}"
 
 
-def normalize_youtube_slots(slots: object) -> list[dict[str, object]]:
+def default_youtube_slots(count: int | None = None) -> list[dict[str, object]]:
+    return [{"title": "", "url": "", "enabled": False, "channel": ""}
+            for _ in range(count or YOUTUBE_SLOT_COUNT)]
+
+
+def normalize_youtube_slots(slots: object, count: int | None = None) -> list[dict[str, object]]:
+    """Exactly `count` slots. `title` is the user's own name ("" = use the channel name) and
+    `channel` the channel name found automatically from the link."""
+    count = count or YOUTUBE_SLOT_COUNT
     normalized: list[dict[str, object]] = []
     if isinstance(slots, list):
-        for index, raw_slot in enumerate(slots[:YOUTUBE_SLOT_COUNT]):
+        for index, raw_slot in enumerate(slots[:count]):
             slot = raw_slot if isinstance(raw_slot, dict) else {}
+            title = str(slot.get("title") or "").strip()
             normalized.append({
-                "title": str(slot.get("title") or f"YouTube {index + 1}"),
+                # Older versions saved "YouTube N" when the name was left empty.
+                "title": "" if title == default_title(index) else title,
                 "url": str(slot.get("url") or ""),
                 "enabled": bool(slot.get("enabled", False)),
+                "channel": str(slot.get("channel") or "").strip(),
             })
-    normalized.extend(default_youtube_slots()[len(normalized):])
+    normalized.extend(default_youtube_slots(count)[len(normalized):])
     return normalized
+
+
+def slot_display_name(slot: dict[str, object], index: int) -> str:
+    return str(slot.get("title") or slot.get("channel") or default_title(index))
 
 
 def parse_reload_time(value: object) -> tuple[int, int]:

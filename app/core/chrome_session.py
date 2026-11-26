@@ -148,6 +148,7 @@ class PlayerConnection(QObject):
     failed = Signal(str)
     playback = Signal(str)
     chrome_inset = Signal(int)
+    channel_name = Signal(str)
 
     def __init__(self, marker: str, url: str, parent: QObject) -> None:
         super().__init__(parent)
@@ -171,6 +172,7 @@ class PlayerConnection(QObject):
         self.page_id = None
         self.health = PlaybackHealth()
         self.muted = True
+        self.author = ""
 
     def set_muted(self, muted: bool) -> None:
         self.muted = muted
@@ -295,6 +297,10 @@ class PlayerConnection(QObject):
                 inset = snapshot.get('chromeTop')
                 if isinstance(inset, (int, float)) and 0 <= inset <= 200:
                     self.chrome_inset.emit(round(inset))
+                author = snapshot.get('author')
+                if isinstance(author, str) and author.strip() and author.strip() != self.author:
+                    self.author = author.strip()
+                    self.channel_name.emit(self.author)
                 state, retry = self.health.observe(snapshot, time.monotonic())
                 self.playback.emit(state)
                 if retry:

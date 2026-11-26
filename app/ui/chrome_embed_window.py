@@ -35,11 +35,12 @@ from app.core.chrome_session import (LOGIN_ERRORS, PlayerConnection, browser_arg
                                      login_browser_args, stop_profile_browsers)
 from app.core.daily_reload import DailyReloadSchedule
 from app.core.player_host import PlayerHost
-from app.core.config import AppConfig, YOUTUBE_SLOT_COUNT, normalize_youtube_slots, parse_reload_time
+from app.core.channel_name import lookup_channel_name
+from app.core.config import AppConfig, normalize_youtube_slots, parse_reload_time, slot_display_name
 from app.core.telegram import TelegramNotifier
 from app.core.youtube import YouTubeUrlError, parse_youtube_url
 from app.ui.themes import DEFAULT_THEME, THEMES, build_stylesheet, get_theme
-from app.version import APP_NAME, APP_VERSION
+from app.edition import Edition, current
 
 
 GWL_STYLE = -16
@@ -59,6 +60,9 @@ SW_SHOW = 5
 # Seconds to wait before relaunching a slot whose Chrome window died; the last value repeats.
 RELAUNCH_DELAYS = [10, 30, 60, 120, 300]
 REVEAL_EDGE_PIXELS = 4
+# Width of the enlarged slot against the side column. With five 16:9 slots stacked on the right,
+# 4:1 keeps each small slot close to 16:9 on a 16:9 screen.
+SIDE_SPOTLIGHT_RATIO = 4
 
 user32 = ctypes.windll.user32
 
@@ -70,10 +74,13 @@ class EmbeddedChrome:
 
 
 class ChromeEmbedWindow(QMainWindow):
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, edition: Edition = current) -> None:
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
+        self.edition = edition
+        self.setWindowTitle(f"{edition.name} {edition.version}")
         self.config = config
+        # The slot dicts are shared with the slots and the sidebar rows from here on.
+        config.youtube_slots = normalize_youtube_slots(config.youtube_slots, edition.slot_count)
         self.theme_name = config.ui_theme if config.ui_theme in THEMES else DEFAULT_THEME
         self.tokens = get_theme(self.theme_name)
         self.player_host = PlayerHost()
@@ -124,6 +131,10 @@ class ChromeEmbedWindow(QMainWindow):
         self.autostart_check = QCheckBox("開機自動啟動")
         self.alert_check = QCheckBox("異常時發 Telegram 通知，持續")
         self.alert_minutes = QSpinBox()
+        self.channel_save_timer = QTimer(self)
+        self.channel_save_timer.setSingleShot(True)
+        self.channel_save_timer.setInterval(3000)
+        self.channel_save_timer.timeout.connect(lambda: self.config.save())
 
         self._build_layout()
         self._connect_events()
@@ -153,17 +164,14 @@ class ChromeEmbedWindow(QMainWindow):
         self.main_layout.addWidget(self._build_top_bar())
 
         self.grid.setSpacing(7)
-        slots = normalize_youtube_slots(self.config.youtube_slots)
-        for index in range(YOUTUBE_SLOT_COUNT):
-            slot = ChromeEmbedSlot(index, slots[index], self.player_host, self.tokens)
+        for index, slot_config in enumerate(self.config.youtube_slots):
+            slot = ChromeEmbedSlot(index, slot_config, self.player_host, self.tokens)
             slot.launch_requested.connect(self.request_launch)
             slot.spotlight_requested.connect(self.toggle_spotlight)
             slot.audio_requested.connect(self.toggle_audio)
+            slot.channel_found.connect(self._channel_found)
             self.slots.append(slot)
-            row, column = divmod(index, 4)
-            self.grid.addWidget(slot, row, column)
-            self.grid.setColumnStretch(column, 1)
-            self.grid.setRowStretch(row, 1)
+        self._arrange_grid()
         self.main_layout.addLayout(self.grid, stretch=1)
         root_layout.addWidget(main, stretch=1)
         self.setCentralWidget(root)
@@ -177,9 +185,9 @@ class ChromeEmbedWindow(QMainWindow):
         layout.setContentsMargins(12, 7, 12, 7)
         layout.setSpacing(8)
 
-        title = QLabel(APP_NAME)
+        title = QLabel(self.edition.name)
         title.setObjectName("appTitle")
-        version = QLabel(APP_VERSION)
+        version = QLabel(self.edition.version)
         version.setObjectName("appMeta")
         metric_label = QLabel("啟用")
         metric_label.setObjectName("metricLabel")
@@ -187,7 +195,7 @@ class ChromeEmbedWindow(QMainWindow):
         self.status_label.setObjectName("statusText")
         self.close_button.setObjectName("dangerButton")
 
-        self.sidebar_button.setToolTip("編輯 12 格的 YouTube 連結與切換配色主題")
+        self.sidebar_button.setToolTip(f"編輯 {self.edition.slot_count} 格的 YouTube 連結與切換配色主題")
         self.reload_button.setToolTip("關閉並依序重新開啟所有啟用格")
         self.mute_all_button.setToolTip("所有格靜音（快捷鍵 M）")
         self.clean_button.setToolTip("隱藏工具列與標題列，只留影像（H）。滑鼠移到畫面最上緣可叫出工具列")
@@ -229,8 +237,10 @@ class ChromeEmbedWindow(QMainWindow):
         theme_row.addWidget(theme_label)
         theme_row.addWidget(self.theme_combo, stretch=1)
         sidebar_layout.addLayout(theme_row)
+        spotlight_hint = ("放大後其他格縮到右側直排，點右側任一格的「放大」可直接切換"
+                          if self.edition.side_spotlight else "雙擊標題列放大／還原")
         keys = QLabel("快捷鍵：F11 全螢幕 · H 純影像 · M 全部靜音 · Esc 返回\n"
-                      "每格：雙擊標題列放大／還原，「聲音」只讓這格出聲")
+                      f"每格：{spotlight_hint}，「聲音」只讓這格出聲")
         keys.setObjectName("hintText")
         keys.setWordWrap(True)
         sidebar_layout.addWidget(keys)
@@ -263,7 +273,8 @@ class ChromeEmbedWindow(QMainWindow):
         links = QLabel("YouTube 連結")
         links.setObjectName("sectionTitle")
         sidebar_layout.addWidget(links)
-        hint = QLabel("勾選要監看的頻道，保存後會重新載入啟用格。\n"
+        hint = QLabel("貼上網址會自動帶出頻道名稱，名稱欄留空就用頻道名稱。"
+                      "勾選要監看的頻道，保存後會重新載入啟用格。\n"
                       "也可貼 youtube.com/channel/UC…/live 跟隨頻道目前的直播；"
                       "部分頻道 YouTube 不提供，顯示無法播放時請改貼影片網址。")
         hint.setWordWrap(True)
@@ -276,7 +287,7 @@ class ChromeEmbedWindow(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(7)
-        for index, slot_config in enumerate(normalize_youtube_slots(self.config.youtube_slots)):
+        for index, slot_config in enumerate(self.config.youtube_slots):
             row = LinkEditorRow(index, slot_config)
             self.link_rows.append(row)
             content_layout.addWidget(row)
@@ -378,15 +389,39 @@ class ChromeEmbedWindow(QMainWindow):
 
     def toggle_spotlight(self, slot: ChromeEmbedSlot | None) -> None:
         self.spotlight_slot = None if slot is None or self.spotlight_slot is slot else slot
-        focus = divmod(self.spotlight_slot.index, 4) if self.spotlight_slot else None
-        # Empty rows/columns keep their stretch in QGridLayout, so zero them while one slot is enlarged.
-        for row in range(3):
-            self.grid.setRowStretch(row, 1 if focus is None or row == focus[0] else 0)
-        for column in range(4):
-            self.grid.setColumnStretch(column, 1 if focus is None or column == focus[1] else 0)
-        for item in self.slots:
-            item.setVisible(self.spotlight_slot is None or item is self.spotlight_slot)
-            item.set_spotlight(item is self.spotlight_slot)
+        self._arrange_grid()
+
+    def _arrange_grid(self) -> None:
+        """Place the slots for the current mode. Moving a slot keeps its embedded Chrome running:
+        only the slot's geometry changes, and its resize handler refits the Chrome window."""
+        focus = self.spotlight_slot
+        columns = self.edition.columns
+        for slot in self.slots:
+            self.grid.removeWidget(slot)
+        stretch_rows: dict[int, int] = {}
+        stretch_columns: dict[int, int] = {}
+        if focus is not None and self.edition.side_spotlight:
+            # Enlarged slot on the left spanning every row; the others stacked down the right.
+            others = [slot for slot in self.slots if slot is not focus]
+            self.grid.addWidget(focus, 0, 0, len(others), 1)
+            for row, slot in enumerate(others):
+                self.grid.addWidget(slot, row, 1)
+                stretch_rows[row] = 1
+            stretch_columns = {0: SIDE_SPOTLIGHT_RATIO, 1: 1}
+        else:
+            for slot in self.slots:
+                row, column = divmod(slot.index, columns)
+                self.grid.addWidget(slot, row, column)
+                if focus is None or slot is focus:
+                    stretch_rows[row] = stretch_columns[column] = 1
+        # QGridLayout never forgets a row or column, so unused ones are zeroed explicitly.
+        for row in range(self.grid.rowCount()):
+            self.grid.setRowStretch(row, stretch_rows.get(row, 0))
+        for column in range(self.grid.columnCount()):
+            self.grid.setColumnStretch(column, stretch_columns.get(column, 0))
+        for slot in self.slots:
+            slot.setVisible(focus is None or slot is focus or self.edition.side_spotlight)
+            slot.set_spotlight(slot is focus)
 
     def toggle_audio(self, slot: ChromeEmbedSlot | None) -> None:
         self.audio_slot = None if slot is None or self.audio_slot is slot else slot
@@ -459,6 +494,16 @@ class ChromeEmbedWindow(QMainWindow):
             slot.update_config(slot_config)
         if self.reload_enabled_slots():
             self.status_label.setText("連結已保存並重載")
+
+    def _channel_found(self, slot: ChromeEmbedSlot, name: str) -> None:
+        """The player reported the channel name: remember it, so the slot keeps its name offline."""
+        saved = self.config.youtube_slots[slot.index]
+        if saved.get("channel") == name or str(saved.get("url") or "").strip() != slot.url():
+            return
+        saved["channel"] = name
+        self.link_rows[slot.index].set_channel(name, saved["url"])
+        # Several slots report within a few seconds of a reload; write the file once.
+        self.channel_save_timer.start()
 
     def login_active(self) -> bool:
         return self.login_stopper is not None or self.login_process is not None
@@ -568,14 +613,17 @@ class ChromeEmbedWindow(QMainWindow):
         self.status_label.setText("Chrome 已全部關閉")
 
     def _refresh_summary(self) -> None:
-        enabled_count = sum(1 for slot in normalize_youtube_slots(self.config.youtube_slots) if slot.get("enabled"))
-        self.enabled_count_label.setText(f"{enabled_count}/{YOUTUBE_SLOT_COUNT}")
+        enabled_count = sum(1 for slot in self.config.youtube_slots if slot.get("enabled"))
+        self.enabled_count_label.setText(f"{enabled_count}/{self.edition.slot_count}")
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         self.daily_reload_timer.stop()
         self.health_timer.stop()
         self.reveal_timer.stop()
         self.login_timer.stop()
+        if self.channel_save_timer.isActive():
+            self.channel_save_timer.stop()
+            self.config.save()
         self.close_all_chrome()
         self.player_host.close()
         event.accept()
@@ -585,6 +633,7 @@ class ChromeEmbedSlot(QFrame):
     launch_requested = Signal(object)
     spotlight_requested = Signal(object)
     audio_requested = Signal(object)
+    channel_found = Signal(object, str)
 
     def __init__(self, index: int, slot_config: dict[str, object], player_host: PlayerHost,
                  tokens: dict[str, str]) -> None:
@@ -677,7 +726,16 @@ class ChromeEmbedSlot(QFrame):
     # ---------- presentation ----------
 
     def title_text(self) -> str:
-        return str(self.slot_config.get("title") or f"YouTube {self.index + 1}")
+        return slot_display_name(self.slot_config, self.index)
+
+    def url(self) -> str:
+        return str(self.slot_config.get("url") or "").strip()
+
+    def _on_channel_name(self, name: str) -> None:
+        # The window stores the name in this slot's config entry (the same dict), then the
+        # header shows it unless the user typed a name of their own.
+        self.channel_found.emit(self, name)
+        self.title_label.setText(self.title_text())
 
     def update_config(self, slot_config: dict[str, object]) -> None:
         self.slot_config = slot_config
@@ -841,6 +899,7 @@ class ChromeEmbedSlot(QFrame):
         self.connection.failed.connect(self._schedule_relaunch)
         self.connection.playback.connect(self._playback_status)
         self.connection.chrome_inset.connect(self._update_chrome_inset)
+        self.connection.channel_name.connect(self._on_channel_name)
 
     def _update_chrome_inset(self, pixels: int) -> None:
         inset = round(pixels * self.container.devicePixelRatioF())
@@ -866,16 +925,75 @@ class ChromeEmbedSlot(QFrame):
 
 
 class LinkEditorRow(QFrame):
+    """One link in the sidebar. The name field fills itself with the channel name; typing a
+    different name keeps the user's name, and clearing the field goes back to the channel name."""
+    name_ready = Signal(str, str)  # url, channel name ("" when not found); emitted from a thread
+
     def __init__(self, index: int, slot_config: dict[str, object]) -> None:
         super().__init__()
         self.index = index
-        self.title_edit = QLineEdit(str(slot_config.get("title") or f"YouTube {index + 1}"))
+        self.channel = str(slot_config.get("channel") or "")
+        self.channel_url = str(slot_config.get("url") or "").strip() if self.channel else ""
+        self.title_edit = QLineEdit(str(slot_config.get("title") or self.channel))
         self.url_edit = QLineEdit(str(slot_config.get("url") or ""))
-        self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…")
+        self.url_edit.setPlaceholderText("貼上 YouTube 網址，會自動帶出頻道名稱")
         self.enabled_check = QCheckBox("啟用")
         self.enabled_check.setChecked(bool(slot_config.get("enabled", False)))
+        self.lookup_timer = QTimer(self)
+        self.lookup_timer.setSingleShot(True)
+        self.lookup_timer.setInterval(700)
+        self.lookup_timer.timeout.connect(self.lookup_channel)
+        self.url_edit.textChanged.connect(self._url_changed)
+        self.name_ready.connect(self._name_ready)
+        self._show_placeholder()
 
         self._build_layout()
+        if self.url() and not self.channel:
+            QTimer.singleShot(0, self.lookup_channel)
+
+    def url(self) -> str:
+        return self.url_edit.text().strip()
+
+    def _show_placeholder(self, looking: bool = False) -> None:
+        self.title_edit.setPlaceholderText("查詢頻道名稱中…" if looking
+                                           else self.channel or f"YouTube {self.index + 1}")
+
+    def _url_changed(self, _text: str) -> None:
+        if self.url() != self.channel_url:
+            # A new link: the old channel name no longer applies unless the user typed it.
+            if self.title_edit.text().strip() == self.channel:
+                self.title_edit.clear()
+            self.channel, self.channel_url = "", ""
+            self._show_placeholder()
+        self.lookup_timer.start()
+
+    def lookup_channel(self) -> None:
+        url = self.url()
+        if not url or url == self.channel_url:
+            return
+        try:
+            parse_youtube_url(url)
+        except YouTubeUrlError:
+            return
+        self._show_placeholder(looking=True)
+        threading.Thread(target=lambda: self.name_ready.emit(url, lookup_channel_name(url) or ""),
+                         daemon=True).start()
+
+    def _name_ready(self, url: str, name: str) -> None:
+        if url != self.url():
+            return  # the link changed while looking it up
+        if name:
+            self.set_channel(name, url)
+        else:
+            self._show_placeholder()
+
+    def set_channel(self, name: str, url: str) -> None:
+        if url.strip() != self.url():
+            return
+        if not self.title_edit.text().strip() or self.title_edit.text().strip() == self.channel:
+            self.title_edit.setText(name)
+        self.channel, self.channel_url = name, url.strip()
+        self._show_placeholder()
 
     def _build_layout(self) -> None:
         self.setObjectName("linkRow")
@@ -894,10 +1012,13 @@ class LinkEditorRow(QFrame):
         layout.addWidget(self.url_edit)
 
     def to_config(self) -> dict[str, object]:
+        title = self.title_edit.text().strip()
         return {
-            "title": self.title_edit.text().strip() or f"YouTube {self.index + 1}",
-            "url": self.url_edit.text().strip(),
+            # Saving the channel name as "" keeps the slot following later name changes.
+            "title": "" if title == self.channel else title,
+            "url": self.url(),
             "enabled": self.enabled_check.isChecked(),
+            "channel": self.channel if self.channel_url == self.url() else "",
         }
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.edition import current
 
-APP_NAME = "12宮格直播監控"
-APP_VERSION = "V04"
+# Names and versions live in app\edition.py; this module keeps the old import path working.
+APP_NAME = current.name
+APP_VERSION = current.version

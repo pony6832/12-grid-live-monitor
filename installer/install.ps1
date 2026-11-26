@@ -2,8 +2,13 @@
 
 $ErrorActionPreference = "Stop"
 
-$appName = "12宮格直播監控"
-$sourceDir = Join-Path $PSScriptRoot $appName
+# The package holds one app folder (12宮格直播監控 or 6宮格直播監控) with an exe of the same name.
+$appFolder = Get-ChildItem -LiteralPath $PSScriptRoot -Directory |
+    Where-Object { Test-Path (Join-Path $_.FullName "$($_.Name).exe") } | Select-Object -First 1
+if (-not $appFolder) { throw "找不到安裝來源資料夾（應與本檔放在同一層）" }
+$appName = $appFolder.Name
+$registryName = ($appName -replace '宮格直播監控', '') + "GridLiveMonitor"
+$sourceDir = $appFolder.FullName
 $installRoot = Join-Path $env:LOCALAPPDATA "Programs"
 $installDir = if ($TargetDir) { $TargetDir } else { Join-Path $installRoot $appName }
 $exePath = Join-Path $installDir "$appName.exe"
@@ -58,7 +63,7 @@ foreach ($path in $shortcutPaths) {
 
 # List the app under Windows 設定 > 應用程式; the app removes itself with --uninstall.
 if (-not $NoShortcuts) {
-    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\12GridLiveMonitor"
+    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$registryName"
     New-Item -Path $uninstallKey -Force | Out-Null
     Set-ItemProperty -Path $uninstallKey -Name DisplayName -Value $appName
     Set-ItemProperty -Path $uninstallKey -Name DisplayIcon -Value $exePath

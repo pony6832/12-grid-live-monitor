@@ -1,4 +1,8 @@
-﻿$ErrorActionPreference = "Stop"
+﻿# .\build.ps1             -> 12宮格直播監控
+# .\build.ps1 -Edition 6  -> 6宮格直播監控
+param([ValidateSet("12", "6")][string]$Edition = "12")
+
+$ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 
 if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
@@ -6,14 +10,22 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     .\install.ps1
 }
 
+$editions = @{
+    "12" = @{ Name = "12宮格直播監控"; Entry = "app\chrome_embed.py"; Config = "config.json"; Icon = "12grid-live-monitor-icon" }
+    "6"  = @{ Name = "6宮格直播監控";  Entry = "app\six_embed.py";    Config = "config-6grid.json"; Icon = "6grid-live-monitor-icon" }
+}
+$spec = $editions[$Edition]
+$env:LIVE_MONITOR_EDITION = $Edition
+
 .\.venv\Scripts\python.exe .\tools\create_icon.py
 if ($LASTEXITCODE -ne 0) { throw "圖示建立失敗" }
 
-# The version lives only in app\version.py.
-$appName = "12宮格直播監控"
+# Names and versions live only in app\edition.py.
+$appName = $spec.Name
 $version = (& .\.venv\Scripts\python.exe -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
-if ($LASTEXITCODE -ne 0 -or -not $version) { throw "讀不到 app\version.py 的版本號" }
-$iconPath = Join-Path $PSScriptRoot "assets\12grid-live-monitor-icon.ico"
+if ($LASTEXITCODE -ne 0 -or -not $version) { throw "讀不到 app\edition.py 的版本號" }
+$iconPath = Join-Path $PSScriptRoot "assets\$($spec.Icon).ico"
+$configTemplate = Join-Path $PSScriptRoot $spec.Config
 
 .\.venv\Scripts\pyinstaller.exe `
     --noconfirm `
@@ -21,7 +33,7 @@ $iconPath = Join-Path $PSScriptRoot "assets\12grid-live-monitor-icon.ico"
     --windowed `
     --name $appName `
     --icon $iconPath `
-    app\chrome_embed.py
+    $spec.Entry
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失敗" }
 
 $internal = Join-Path $PSScriptRoot "dist\$appName\_internal"
@@ -71,8 +83,8 @@ if (Test-Path $packageDir) {
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
 Copy-Item -Recurse -Force (Join-Path $PSScriptRoot "dist\$appName") $packageDir
-Copy-Item -Force (Join-Path $PSScriptRoot "config.json") (Join-Path $packageDir "$appName\config.json")
-Copy-Item -Force (Join-Path $PSScriptRoot "installer\安裝-12宮格直播監控.cmd") $packageDir
+Copy-Item -Force $configTemplate (Join-Path $packageDir "$appName\config.json")
+Copy-Item -Force (Join-Path $PSScriptRoot "installer\安裝-12宮格直播監控.cmd") (Join-Path $packageDir "安裝-$appName.cmd")
 Copy-Item -Force (Join-Path $PSScriptRoot "installer\install.ps1") $packageDir
 Copy-Item -Force (Join-Path $PSScriptRoot "README.md") $packageDir
 
